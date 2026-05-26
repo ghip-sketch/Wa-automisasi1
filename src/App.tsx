@@ -50,6 +50,22 @@ export default function App() {
 
   useEffect(() => {
     fetchAllState();
+
+    // Set up rapid polling interval (every 10 seconds) to auto-update WhatsApp/Fonnte connection status
+    const interval = setInterval(() => {
+      // Quietly fetch state in the background
+      dataService.getConfig().then(({ config: configData }) => {
+        dataService.getLeads().then((leadsData) => {
+          dataService.getStats(leadsData, configData).then((statsData) => {
+            setLeads(leadsData);
+            setConfig(configData);
+            setStats(statsData);
+          }).catch(err => console.error('Silent stats fetch failed', err));
+        }).catch(err => console.error('Silent leads fetch failed', err));
+      }).catch(err => console.error('Silent config fetch failed', err));
+    }, 10000);
+
+    return () => clearInterval(interval);
   }, [userEmail]);
 
   // Handle successful login

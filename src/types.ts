@@ -53,6 +53,7 @@ export interface AppConfig {
   whatsappMode?: 'Simulator' | 'Fonnte';
   whatsappToken?: string;
   whatsappPhone?: string;
+  geminiApiKey?: string;
 }
 
 export interface DashboardStats {

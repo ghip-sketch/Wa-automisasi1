@@ -163,9 +163,30 @@ export default function WhatsAppView({ stats, fetchStats, config }: WhatsAppView
                 </div>
               </div>
 
-              <div className="mt-6 p-3 bg-indigo-50/50 rounded-xl border border-indigo-100 text-[9.5px] text-indigo-800 text-left leading-relaxed font-semibold">
+              <div className="mt-4 p-3 bg-indigo-50/50 rounded-xl border border-indigo-100 text-[9.5px] text-indigo-800 text-left leading-relaxed font-semibold">
                 *Multi-device cloud ditenagai sepenuhnya oleh server Fonnte. HP Anda tidak dituntut berada dekat server hosting agar AI selalu merespons.
               </div>
+
+              <button 
+                type="button"
+                disabled={loading}
+                onClick={async () => {
+                  setLoading(true);
+                  addLog('Meminta pembaruan status server dengan Fonnte API...');
+                  try {
+                    await fetchStats();
+                    addLog('Sinkronisasi status selesai.');
+                  } catch (e) {
+                    addLog('Aksi sinkronisasi gagal.');
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+                className="w-full mt-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs tracking-wide shadow-lg shadow-indigo-600/15 flex items-center justify-center space-x-2 cursor-pointer transition-all active:scale-[0.98] disabled:opacity-50"
+              >
+                <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+                <span>{loading ? 'Menyinkronkan...' : 'Cek Status Hubung Sekarang'}</span>
+              </button>
             </div>
           ) : stats.connectionStatus === 'Connected' ? (
             <div className="py-6 flex flex-col items-center w-full">

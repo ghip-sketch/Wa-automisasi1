@@ -30,8 +30,8 @@ export default function SettingsView({ config, fetchConfig }: SettingsViewProps)
   useEffect(() => {
     // Read local Gemini Key
     const { gemini } = getSavedCredentials();
-    setGeminiKeyLocal(gemini);
-  }, []);
+    setGeminiKeyLocal(config.geminiApiKey || gemini);
+  }, [config.geminiApiKey]);
 
   // Sync Input Elements
   const handleChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -77,7 +77,12 @@ export default function SettingsView({ config, fetchConfig }: SettingsViewProps)
         localStorage.removeItem('gemini_api_key');
       }
 
-      const ok = await dataService.saveConfig(formData);
+      const submissionData = {
+        ...formData,
+        geminiApiKey: geminiKeyLocal
+      };
+
+      const ok = await dataService.saveConfig(submissionData);
       if (ok) {
         setIsSaving(false);
         setSuccess(true);
@@ -320,22 +325,25 @@ export default function SettingsView({ config, fetchConfig }: SettingsViewProps)
           <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
             <h3 className="text-xs font-extrabold text-slate-400 uppercase tracking-widest border-b border-slate-50 pb-2 flex items-center">
               <Key size={13} className="text-slate-400 mr-2" />
-              Google Gemini Client Integration
+              Integrasi Google Gemini API
             </h3>
 
-            <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100 text-[10.5px] text-emerald-800 leading-relaxed font-semibold">
-              Kunci ini digunakan sebagai <strong>fallback klien langsung</strong> untuk pemrosesan AI Simulator saat dideploy di Vercel/GitHub Pages (tanpa server backend). Disimpan dengan aman secara lokal di peramban (browser) Anda.
+            <div className="p-3.5 bg-emerald-50/50 rounded-xl border border-emerald-100/50 text-[10.5px] text-emerald-800 leading-relaxed font-semibold">
+              Kunci ini terintegrasi langsung dengan mesin AI asisten. Disimpan dengan aman baik di database server maupun di peramban lokal Anda. AI akan merespons chat di WhatsApp berdasarkan kunci ini.
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700">Gemini Client API Key (Hanya untuk Vercel)</label>
+              <label className="text-xs font-bold text-slate-700">Google Gemini API Key</label>
               <input
                 type="password"
                 value={geminiKeyLocal}
                 onChange={(e) => setGeminiKeyLocal(e.target.value)}
-                className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:border-emerald-500 outline-none focus:ring-1 focus:ring-emerald-500 font-mono bg-slate-50/50 hover:bg-slate-50 focus:bg-white text-slate-800"
-                placeholder="AIzaSy..."
+                className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:border-emerald-500 outline-none focus:ring-1 focus:ring-emerald-500 font-mono bg-slate-50/80 hover:bg-slate-50 focus:bg-white text-slate-800"
+                placeholder="Masukkan API Key (Kunci diawali dengan AIzaSy...)"
               />
+              <p className="text-[10px] text-slate-400 font-medium">
+                Belum punya API Key? Dapatkan gratis secara mudah di <a href="https://aistudio.google.com/" target="_blank" rel="noopener noreferrer" className="text-indigo-600 underline font-bold">Google AI Studio</a>.
+              </p>
             </div>
           </div>
 

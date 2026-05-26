@@ -13,15 +13,39 @@ const DB_PATH = path.join(process.cwd(), 'db.json');
 
 // Initialize Gemini Client
 let ai: GoogleGenAI | null = null;
-if (process.env.GEMINI_API_KEY) {
-  ai = new GoogleGenAI({
-    apiKey: process.env.GEMINI_API_KEY,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build',
-      },
-    },
-  });
+function getGeminiClient(): GoogleGenAI | null {
+  if (process.env.GEMINI_API_KEY) {
+    if (!ai) {
+      ai = new GoogleGenAI({
+        apiKey: process.env.GEMINI_API_KEY,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          },
+        },
+      });
+    }
+    return ai;
+  }
+
+  // Fallback to reading saved geminiApiKey from config db.json
+  try {
+    const db = readDB();
+    if (db.config && db.config.geminiApiKey) {
+      return new GoogleGenAI({
+        apiKey: db.config.geminiApiKey.trim(),
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          },
+        },
+      });
+    }
+  } catch (err) {
+    console.error('[Gemini Client Dynamic Resolve Error]', err);
+  }
+
+  return null;
 }
 
 // Interceptor to parse JSON and urlencoded bodies
@@ -48,6 +72,7 @@ interface LocalDB {
     whatsappMode?: 'Simulator' | 'Fonnte';
     whatsappToken?: string;
     whatsappPhone?: string;
+    geminiApiKey?: string;
   };
   leads: Array<{
     id: string;
@@ -763,12 +788,14 @@ TUGAS UTAMA:
   // Check manual Q&A keyword match first (highest priority override)
   const matchedRule = findMatchingQnaRule(messageText, db.qnaRules);
 
+  const activeAi = getGeminiClient();
+
   if (matchedRule) {
     responseText = matchedRule.reply;
   } else if (!hoursCheck.within) {
     // Return out-of-hours reply directly
     responseText = hoursCheck.feedback;
-  } else if (!ai) {
+  } else if (!activeAi) {
     // If Gemini key is not configured, generate a high-quality mock response
     const lowercaseMsg = messageText.toLowerCase();
     if (lowercaseMsg.includes('menu') || lowercaseMsg.includes('harga') || lowercaseMsg.includes('makan') || lowercaseMsg.includes('kopi')) {
@@ -781,7 +808,7 @@ TUGAS UTAMA:
   } else {
     try {
       // Call Gemini API server-side
-      const response = await ai.models.generateContent({
+      const response = await activeAi.models.generateContent({
         model: 'gemini-3.5-flash',
         contents: messageText,
         config: {
@@ -949,11 +976,13 @@ TUGAS UTAMA:
   // Check manual Q&A keyword match first (highest priority override)
   const matchedRule = findMatchingQnaRule(messageText, db.qnaRules);
 
+  const activeAi = getGeminiClient();
+
   if (matchedRule) {
     responseText = matchedRule.reply;
   } else if (!hoursCheck.within) {
     responseText = hoursCheck.feedback;
-  } else if (!ai) {
+  } else if (!activeAi) {
     // Basic AI fallback
     const lowercaseMsg = messageText.toLowerCase();
     if (lowercaseMsg.includes('menu') || lowercaseMsg.includes('harga') || lowercaseMsg.includes('makan') || lowercaseMsg.includes('kopi')) {
@@ -963,7 +992,7 @@ TUGAS UTAMA:
     }
   } else {
     try {
-      const response = await ai.models.generateContent({
+      const response = await activeAi.models.generateContent({
         model: 'gemini-3.5-flash',
         contents: messageText,
         config: {
