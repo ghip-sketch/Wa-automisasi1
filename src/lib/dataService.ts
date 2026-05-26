@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { GoogleGenAI } from '@google/genai';
-import { Lead, KBDocument, AppConfig, DashboardStats, Message } from '../types';
+import { Lead, KBDocument, AppConfig, DashboardStats, Message, QnARule } from '../types';
 
 // Helper to determine if we should call the backend API or use direct client-side fallback
 let useClientFallbackCached: boolean | null = null;
@@ -67,6 +67,31 @@ const LOCAL_LEADS_KEY = 'wai_local_leads';
 const LOCAL_DOCS_KEY = 'wai_local_docs';
 const LOCAL_CONFIG_KEY = 'wai_local_config';
 const LOCAL_WA_KEY = 'wai_local_wa';
+const LOCAL_QNA_KEY = 'wai_local_qna';
+
+const defaultLocalQnaRules: QnARule[] = [
+  {
+    id: 'qna_1',
+    keyword: 'Halo',
+    reply: 'Halo! Terima kasih telah menghubungi kami. Kami merasa gembira menyapa Anda. Ada yang bisa kami bantu seputar menu kafe atau pemesanan hari ini? 😊☕',
+    matchType: 'contains',
+    isActive: true
+  },
+  {
+    id: 'qna_2',
+    keyword: 'Alamat',
+    reply: 'Alamat Coffee & Co. Jakarta berlokasi di Jl. Senopati Raya No. 42, Kebayoran Baru, Jakarta Selatan. Kami sedia lahan parkir luas, colokan di tiap meja, serta Wi-Fi 100 Mbps! 🗺️✨',
+    matchType: 'contains',
+    isActive: true
+  },
+  {
+    id: 'qna_3',
+    keyword: 'Jam buka',
+    reply: 'Coffee & Co. Jakarta buka setiap hari mulai pukul 09:00 - 21:00 WIB. Pilihan pas untuk sarapan, makan siang, atau coworking produktif! ☀️🌙',
+    matchType: 'contains',
+    isActive: true
+  }
+];
 
 const defaultLocalConfig: AppConfig = {
   businessName: 'Coffee & Co. Jakarta',
@@ -442,6 +467,50 @@ export const dataService = {
     const docs = getLocalData(LOCAL_DOCS_KEY, defaultLocalDocs);
     const filtered = docs.filter(d => d.id !== id);
     setLocalData(LOCAL_DOCS_KEY, filtered);
+    return true;
+  },
+
+  getQnARules: async (): Promise<QnARule[]> => {
+    const hasBackend = await checkBackendAvailable();
+    if (hasBackend) {
+      const res = await fetch('/api/qna');
+      return await res.json();
+    }
+    return getLocalData(LOCAL_QNA_KEY, defaultLocalQnaRules);
+  },
+
+  saveQnARule: async (rule: QnARule): Promise<boolean> => {
+    const hasBackend = await checkBackendAvailable();
+    if (hasBackend) {
+      const res = await fetch('/api/qna', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(rule)
+      });
+      return res.ok;
+    }
+
+    const rules = getLocalData(LOCAL_QNA_KEY, defaultLocalQnaRules);
+    const existingIndex = rules.findIndex(r => r.id === r.id && r.id === rule.id);
+    if (existingIndex !== -1) {
+      rules[existingIndex] = rule;
+    } else {
+      rules.push(rule);
+    }
+    setLocalData(LOCAL_QNA_KEY, rules);
+    return true;
+  },
+
+  deleteQnARule: async (id: string): Promise<boolean> => {
+    const hasBackend = await checkBackendAvailable();
+    if (hasBackend) {
+      const res = await fetch(`/api/qna/${id}`, { method: 'DELETE' });
+      return res.ok;
+    }
+
+    const rules = getLocalData(LOCAL_QNA_KEY, defaultLocalQnaRules);
+    const filtered = rules.filter(r => r.id !== id);
+    setLocalData(LOCAL_QNA_KEY, filtered);
     return true;
   },
 

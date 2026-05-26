@@ -25,6 +25,14 @@ export interface KBDocument {
   chunkCount: number;
 }
 
+export interface QnARule {
+  id: string;
+  keyword: string;
+  reply: string;
+  matchType: 'exact' | 'contains';
+  isActive: boolean;
+}
+
 export interface AppConfig {
   businessName: string;
   businessDesc: string;

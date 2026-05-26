@@ -79,6 +79,13 @@ interface LocalDB {
     deviceName: string;
     status: 'Connected' | 'Disconnected' | 'Connecting';
   };
+  qnaRules: Array<{
+    id: string;
+    keyword: string;
+    reply: string;
+    matchType: 'exact' | 'contains';
+    isActive: boolean;
+  }>;
 }
 
 const defaultDB: LocalDB = {
@@ -168,7 +175,30 @@ Pilihan Susu Alternatif: Oat Milk / Almond Milk (+ Rp 8.000)`
     connectedNumber: '+62 812-4521-9988',
     deviceName: 'iPhone 15 Pro - WAI Production',
     status: 'Connected'
-  }
+  },
+  qnaRules: [
+    {
+      id: 'qna_1',
+      keyword: 'Halo',
+      reply: 'Halo! Terima kasih telah menghubungi kami. Kami merasa gembira menyapa Anda. Ada yang bisa kami bantu seputar menu kafe atau pemesanan hari ini? 😊☕',
+      matchType: 'contains',
+      isActive: true
+    },
+    {
+      id: 'qna_2',
+      keyword: 'Alamat',
+      reply: 'Alamat Coffee & Co. Jakarta berlokasi di Jl. Senopati Raya No. 42, Kebayoran Baru, Jakarta Selatan. Kami sedia lahan parkir luas, colokan di tiap meja, serta Wi-Fi 100 Mbps! 🗺️✨',
+      matchType: 'contains',
+      isActive: true
+    },
+    {
+      id: 'qna_3',
+      keyword: 'Jam buka',
+      reply: 'Coffee & Co. Jakarta buka setiap hari mulai pukul 09:00 - 21:00 WIB. Pilihan pas untuk sarapan, makan siang, atau coworking produktif! ☀️🌙',
+      matchType: 'contains',
+      isActive: true
+    }
+  ]
 };
 
 // Ensure database load/store functions are safe
@@ -179,7 +209,11 @@ function readDB(): LocalDB {
       return defaultDB;
     }
     const data = fs.readFileSync(DB_PATH, 'utf-8');
-    return JSON.parse(data);
+    const parsed = JSON.parse(data);
+    if (!parsed.qnaRules) {
+      parsed.qnaRules = defaultDB.qnaRules || [];
+    }
+    return parsed;
   } catch (error) {
     console.error('Failed reading DB, falling back to local memory', error);
     return defaultDB;
@@ -234,6 +268,26 @@ function retrieveContext(query: string, documents: Array<{ content: string }>): 
 
   // Fallback to general documents summaries
   return `\n=== INFORMASI BISNIS DARI KNOWLEDGE BASE ===\n${documents.map(d => d.content).join('\n\n')}\n============================================\n`;
+}
+
+// Search for matching manual Q&A rule
+function findMatchingQnaRule(text: string, rules: any[]): any | null {
+  if (!rules || rules.length === 0) return null;
+  const cleanText = text.trim().toLowerCase();
+  for (const rule of rules) {
+    if (!rule.isActive) continue;
+    const cleanKeyword = rule.keyword.trim().toLowerCase();
+    if (rule.matchType === 'exact') {
+      if (cleanText === cleanKeyword) {
+        return rule;
+      }
+    } else { // contains
+      if (cleanText.includes(cleanKeyword)) {
+        return rule;
+      }
+    }
+  }
+  return null;
 }
 
 // Helper to call real Fonnte WhatsApp API
@@ -344,6 +398,62 @@ app.delete('/api/documents/:id', (req, res) => {
     return res.json({ success: true, deleted: deleted[0] });
   }
   res.status(404).json({ error: 'Document not found' });
+});
+
+// API: Get Q&A Rules
+app.get('/api/qna', (req, res) => {
+  const db = readDB();
+  res.json(db.qnaRules || []);
+});
+
+// API: Save/Update Q&A Rule
+app.post('/api/qna', (req, res) => {
+  const db = readDB();
+  const rule = req.body;
+  
+  if (!rule.keyword || !rule.reply) {
+    return res.status(400).json({ error: 'Keyword and reply are required' });
+  }
+
+  if (!db.qnaRules) {
+    db.qnaRules = [];
+  }
+
+  const existingIndex = db.qnaRules.findIndex(r => r.id === rule.id);
+  if (existingIndex !== -1) {
+    db.qnaRules[existingIndex] = {
+      ...db.qnaRules[existingIndex],
+      ...rule,
+      id: rule.id // preserve id
+    };
+  } else {
+    const newRule = {
+      id: rule.id || 'qna_' + Date.now(),
+      keyword: rule.keyword,
+      reply: rule.reply,
+      matchType: rule.matchType || 'contains',
+      isActive: rule.isActive !== undefined ? rule.isActive : true
+    };
+    db.qnaRules.push(newRule);
+  }
+
+  writeDB(db);
+  res.json({ success: true });
+});
+
+// API: Delete Q&A Rule
+app.delete('/api/qna/:id', (req, res) => {
+  const db = readDB();
+  if (!db.qnaRules) {
+    db.qnaRules = [];
+  }
+  const index = db.qnaRules.findIndex(r => r.id === req.params.id);
+  if (index !== -1) {
+    const deleted = db.qnaRules.splice(index, 1);
+    writeDB(db);
+    return res.json({ success: true, deleted: deleted[0] });
+  }
+  res.status(404).json({ error: 'Q&A Rule not found' });
 });
 
 // API: Get Leads list
@@ -585,7 +695,12 @@ TUGAS UTAMA:
 
   let responseText = '';
 
-  if (!hoursCheck.within) {
+  // Check manual Q&A keyword match first (highest priority override)
+  const matchedRule = findMatchingQnaRule(messageText, db.qnaRules);
+
+  if (matchedRule) {
+    responseText = matchedRule.reply;
+  } else if (!hoursCheck.within) {
     // Return out-of-hours reply directly
     responseText = hoursCheck.feedback;
   } else if (!ai) {
@@ -766,7 +881,12 @@ TUGAS UTAMA:
 
   let responseText = '';
 
-  if (!hoursCheck.within) {
+  // Check manual Q&A keyword match first (highest priority override)
+  const matchedRule = findMatchingQnaRule(messageText, db.qnaRules);
+
+  if (matchedRule) {
+    responseText = matchedRule.reply;
+  } else if (!hoursCheck.within) {
     responseText = hoursCheck.feedback;
   } else if (!ai) {
     // Basic AI fallback
