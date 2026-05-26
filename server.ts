@@ -267,27 +267,73 @@ let cachedSupabase: any = null;
 let lastSupabaseUrl = '';
 let lastSupabaseKey = '';
 
+function extractSupabaseUrl(url: string, key: string): string | null {
+  const cleanUrl = url?.trim() || '';
+  const cleanKey = key?.trim() || '';
+
+  // 1. Try to decode the JWT key to find the real project reference
+  let jwtRef = '';
+  if (cleanKey) {
+    const parts = cleanKey.split('.');
+    if (parts.length === 3) {
+      try {
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf-8'));
+        if (payload && payload.ref) {
+          jwtRef = payload.ref.trim();
+          console.log('[Supabase Url Extractor] Extracted project Reference from API Key JWT:', jwtRef);
+        }
+      } catch (e) {
+        try {
+          // Fallback parsing
+          const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('binary'));
+          if (payload && payload.ref) {
+            jwtRef = payload.ref.trim();
+          }
+        } catch (err2) {}
+      }
+    }
+  }
+
+  // 2. If we found a JWT reference, always construct a valid URL!
+  if (jwtRef) {
+    const constructedUrl = `https://${jwtRef}.supabase.co`;
+    console.log('[Supabase Url Extractor] Resolved correct URL from JWT payload:', constructedUrl);
+    return constructedUrl;
+  }
+
+  // 3. If no JWT ref was found, validate and format the provided URL
+  if (!cleanUrl) return null;
+
+  if (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://')) {
+    return cleanUrl;
+  }
+
+  if (/^[a-z0-9]{20}$/i.test(cleanUrl)) {
+    return `https://${cleanUrl}.supabase.co`;
+  }
+
+  return null;
+}
+
 function getSupabase(): any {
   try {
     const db = readDBQuiet();
-    let url = db.config?.supabaseUrl?.trim() || '';
+    const cleanUrlRaw = db.config?.supabaseUrl || '';
     const key = db.config?.supabaseAnonKey?.trim() || '';
-    if (!url || !key) {
+    
+    if (!key) {
       cachedSupabase = null;
       lastSupabaseUrl = '';
       lastSupabaseKey = '';
       return null;
     }
 
-    // Automatically expand 20-character project references to correct Supabase URLs
-    if (url && !url.startsWith('http://') && !url.startsWith('https://')) {
-      if (/^[a-z0-9]{20}$/i.test(url)) {
-        url = `https://${url}.supabase.co`;
-        console.log('[Supabase Server Init] Autocompleted project reference to:', url);
-      } else {
-        console.warn('[Supabase Server Init] URL is malformed and does not start with http/https:', url);
-        return null;
-      }
+    const url = extractSupabaseUrl(cleanUrlRaw, key);
+    if (!url) {
+      cachedSupabase = null;
+      lastSupabaseUrl = '';
+      lastSupabaseKey = '';
+      return null;
     }
     
     if (cachedSupabase && url === lastSupabaseUrl && key === lastSupabaseKey) {

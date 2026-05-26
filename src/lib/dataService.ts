@@ -9,11 +9,54 @@ async function checkBackendAvailable(): Promise<boolean> {
   return true;
 }
 
+function extractSupabaseUrl(url: string, key: string): string {
+  const cleanUrl = url?.trim() || '';
+  const cleanKey = key?.trim() || '';
+
+  // Try to decode JWT payload from api key to obtain project reference
+  let jwtRef = '';
+  if (cleanKey) {
+    const parts = cleanKey.split('.');
+    if (parts.length === 3) {
+      try {
+        const payload = JSON.parse(atob(parts[1]));
+        if (payload && payload.ref) {
+          jwtRef = payload.ref.trim();
+        }
+      } catch (e) {
+        try {
+          const payload = JSON.parse(decodeURIComponent(escape(atob(parts[1]))));
+          if (payload && payload.ref) {
+            jwtRef = payload.ref.trim();
+          }
+        } catch (err2) {}
+      }
+    }
+  }
+
+  if (jwtRef) {
+    return `https://${jwtRef}.supabase.co`;
+  }
+
+  if (!cleanUrl) return '';
+
+  if (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://')) {
+    return cleanUrl;
+  }
+
+  if (/^[a-z0-9]{20}$/i.test(cleanUrl)) {
+    return `https://${cleanUrl}.supabase.co`;
+  }
+
+  return cleanUrl;
+}
+
 // Client-side credentials getters
 export function getSavedCredentials() {
-  const url = (import.meta as any).env?.VITE_SUPABASE_URL || localStorage.getItem('supabase_url') || '';
+  const rawUrl = (import.meta as any).env?.VITE_SUPABASE_URL || localStorage.getItem('supabase_url') || '';
   const key = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || localStorage.getItem('supabase_anon_key') || '';
   const gemini = (import.meta as any).env?.VITE_GEMINI_API_KEY || localStorage.getItem('gemini_api_key') || '';
+  const url = extractSupabaseUrl(rawUrl, key);
   return { url, key, gemini };
 }
 
