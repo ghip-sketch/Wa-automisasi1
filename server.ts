@@ -4,6 +4,7 @@ import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import dotenv from 'dotenv';
+import { createClient } from '@supabase/supabase-js';
 
 dotenv.config();
 
@@ -227,6 +228,22 @@ Pilihan Susu Alternatif: Oat Milk / Almond Milk (+ Rp 8.000)`
 };
 
 // Ensure database load/store functions are safe
+function readDBQuiet(): LocalDB {
+  try {
+    if (!fs.existsSync(DB_PATH)) {
+      return defaultDB;
+    }
+    const data = fs.readFileSync(DB_PATH, 'utf-8');
+    const parsed = JSON.parse(data);
+    if (!parsed.qnaRules) {
+      parsed.qnaRules = defaultDB.qnaRules || [];
+    }
+    return parsed;
+  } catch (error) {
+    return defaultDB;
+  }
+}
+
 function readDB(): LocalDB {
   try {
     if (!fs.existsSync(DB_PATH)) {
@@ -245,9 +262,197 @@ function readDB(): LocalDB {
   }
 }
 
+// Supabase synchronization engine
+let cachedSupabase: any = null;
+let lastSupabaseUrl = '';
+let lastSupabaseKey = '';
+
+function getSupabase(): any {
+  try {
+    const db = readDBQuiet();
+    const url = db.config?.supabaseUrl?.trim() || '';
+    const key = db.config?.supabaseAnonKey?.trim() || '';
+    if (!url || !key) {
+      cachedSupabase = null;
+      lastSupabaseUrl = '';
+      lastSupabaseKey = '';
+      return null;
+    }
+    
+    if (cachedSupabase && url === lastSupabaseUrl && key === lastSupabaseKey) {
+      return cachedSupabase;
+    }
+    
+    console.log('[Supabase Server Init] Creating Supabase client with URL:', url);
+    cachedSupabase = createClient(url, key);
+    lastSupabaseUrl = url;
+    lastSupabaseKey = key;
+    return cachedSupabase;
+  } catch (e) {
+    console.error('[Supabase Server Init Exception]', e);
+    return null;
+  }
+}
+
+async function syncToSupabase(data: LocalDB) {
+  const supabase = getSupabase();
+  if (!supabase) return;
+
+  console.log('[Supabase Async Sync] Synchronizing changes to Supabase tables in real-time...');
+
+  // 1. Sync config
+  try {
+    const { error } = await supabase.from('config').upsert({ id: 'default', ...data.config });
+    if (error) console.error('[Supabase Sync Warn] config:', error.message);
+  } catch (e) {
+    console.error('[Supabase Sync Err] config table:', e);
+  }
+
+  // 2. Sync whatsapp status
+  if (data.whatsapp) {
+    try {
+      const { error } = await supabase.from('whatsapp').upsert({ id: 'default', ...data.whatsapp });
+      if (error) console.error('[Supabase Sync Warn] whatsapp:', error.message);
+    } catch (e) {
+      console.error('[Supabase Sync Err] whatsapp table:', e);
+    }
+  }
+
+  // 3. Sync leads
+  if (data.leads && Array.isArray(data.leads)) {
+    try {
+      for (const lead of data.leads) {
+        const payload = {
+          ...lead,
+          chatHistory: typeof lead.chatHistory === 'object' ? lead.chatHistory : []
+        };
+        const { error } = await supabase.from('leads').upsert(payload);
+        if (error) console.error('[Supabase Sync Warn] lead:', lead.id, error.message);
+      }
+    } catch (e) {
+      console.error('[Supabase Sync Err] leads table:', e);
+    }
+  }
+
+  // 4. Sync documents
+  if (data.documents && Array.isArray(data.documents)) {
+    try {
+      for (const doc of data.documents) {
+        const { error } = await supabase.from('documents').upsert(doc);
+        if (error) console.error('[Supabase Sync Warn] document:', doc.id, error.message);
+      }
+    } catch (e) {
+      console.error('[Supabase Sync Err] documents table:', e);
+    }
+  }
+
+  // 5. Sync QnA rules
+  if (data.qnaRules && Array.isArray(data.qnaRules)) {
+    try {
+      for (const rule of data.qnaRules) {
+        const { error } = await supabase.from('qna_rules').upsert(rule);
+        if (error) {
+          const { error: errorAlt } = await supabase.from('qna').upsert(rule);
+          if (errorAlt) {
+            console.error('[Supabase Sync Warn] qna_rules / qna:', error.message, errorAlt.message);
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[Supabase Sync Err] qna_rules table:', e);
+    }
+  }
+
+  console.log('[Supabase Async Sync] Synchronization finished.');
+}
+
+async function syncFromSupabase() {
+  const supabase = getSupabase();
+  if (!supabase) {
+    console.log('[Supabase Startup Pull] Supabase parameters not fully configured yet. Running with db.json.');
+    return;
+  }
+
+  console.log('[Supabase Startup Pull] Pulling data to initialize local Cache/db.json...');
+  const db = readDBQuiet();
+
+  // 1. Pull config
+  try {
+    const { data, error } = await supabase.from('config').select('*').eq('id', 'default').single();
+    if (!error && data) {
+      db.config = { ...db.config, ...data };
+      console.log('[Supabase Startup Pull] Config loaded successfully.');
+    }
+  } catch (e) {
+    console.error('[Supabase Startup Pull] Config table fetch error:', e);
+  }
+
+  // 2. Pull whatsapp
+  try {
+    const { data, error } = await supabase.from('whatsapp').select('*').eq('id', 'default').single();
+    if (!error && data) {
+      db.whatsapp = { ...db.whatsapp, ...data };
+      console.log('[Supabase Startup Pull] WhatsApp status loaded successfully.');
+    }
+  } catch (e) {
+    console.error('[Supabase Startup Pull] WhatsApp table fetch error:', e);
+  }
+
+  // 3. Pull leads
+  try {
+    const { data, error } = await supabase.from('leads').select('*');
+    if (!error && data && data.length > 0) {
+      db.leads = data.map((item: any) => ({
+        ...item,
+        chatHistory: typeof item.chatHistory === 'string' ? JSON.parse(item.chatHistory) : (item.chatHistory || [])
+      }));
+      console.log(`[Supabase Startup Pull] Loaded ${data.length} leads.`);
+    }
+  } catch (e) {
+    console.error('[Supabase Startup Pull] Leads table fetch error:', e);
+  }
+
+  // 4. Pull documents
+  try {
+    const { data, error } = await supabase.from('documents').select('*');
+    if (!error && data && data.length > 0) {
+      db.documents = data;
+      console.log(`[Supabase Startup Pull] Loaded ${data.length} documents.`);
+    }
+  } catch (e) {
+    console.error('[Supabase Startup Pull] Documents table fetch error:', e);
+  }
+
+  // 5. Pull qna rules
+  try {
+    const { data, error } = await supabase.from('qna_rules').select('*');
+    if (!error && data && data.length > 0) {
+      db.qnaRules = data;
+      console.log(`[Supabase Startup Pull] Loaded ${data.length} qna_rules.`);
+    } else {
+      const { data: dataAlt, error: errorAlt } = await supabase.from('qna').select('*');
+      if (!errorAlt && dataAlt && dataAlt.length > 0) {
+        db.qnaRules = dataAlt;
+        console.log(`[Supabase Startup Pull] Loaded ${dataAlt.length} qna rules.`);
+      }
+    }
+  } catch (e) {
+    console.error('[Supabase Startup Pull] QnA rules table fetch error:', e);
+  }
+
+  // Write content back
+  fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2));
+  console.log('[Supabase Startup Pull] Local database db.json synchronisation finished.');
+}
+
 function writeDB(data: LocalDB) {
   try {
     fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+    
+    // Run background push to Supabase as fire-and-forget
+    syncToSupabase(data).catch(err => {
+      console.error('[Background Supabase Sync Failed]', err);
+    });
   } catch (error) {
     console.error('Failed writing DB to disk', error);
   }
@@ -616,14 +821,22 @@ app.get('/api/dashboard/stats', async (req, res) => {
             writeDB(db);
           } else {
             connectionStatus = 'Disconnected';
+            connectedNumber = '';
+            connectedName = '';
             db.whatsapp.status = 'Disconnected';
             db.whatsapp.isConnected = false;
+            db.whatsapp.connectedNumber = '';
+            db.whatsapp.deviceName = '';
             writeDB(db);
           }
         } else {
           connectionStatus = 'Disconnected';
+          connectedNumber = '';
+          connectedName = '';
           db.whatsapp.status = 'Disconnected';
           db.whatsapp.isConnected = false;
+          db.whatsapp.connectedNumber = '';
+          db.whatsapp.deviceName = '';
           fonnteReason = data.reason || 'Token tidak valid/tidak ditemukan';
           writeDB(db);
         }
@@ -631,7 +844,14 @@ app.get('/api/dashboard/stats', async (req, res) => {
     } catch (err) {
       console.error('[Fonnte Status API Error]', err);
       connectionStatus = 'Disconnected';
+      connectedNumber = '';
+      connectedName = '';
+      db.whatsapp.status = 'Disconnected';
+      db.whatsapp.isConnected = false;
+      db.whatsapp.connectedNumber = '';
+      db.whatsapp.deviceName = '';
       fonnteReason = 'Koneksi API Gagal / Timeout';
+      writeDB(db);
     }
   }
   
@@ -1057,8 +1277,13 @@ if (process.env.NODE_ENV !== 'production') {
       }
     });
 
-    app.listen(PORT, '0.0.0.0', () => {
+    app.listen(PORT, '0.0.0.0', async () => {
       console.log(`Development custom fullstack server active on port ${PORT}`);
+      try {
+        await syncFromSupabase();
+      } catch (err) {
+        console.error('Failed to sync from Supabase at startup:', err);
+      }
     });
   });
 } else {
@@ -1069,7 +1294,12 @@ if (process.env.NODE_ENV !== 'production') {
     res.sendFile(path.join(distPath, 'index.html'));
   });
 
-  app.listen(PORT, '0.0.0.0', () => {
+  app.listen(PORT, '0.0.0.0', async () => {
     console.log(`Production custom fullstack server active on port ${PORT}`);
+    try {
+      await syncFromSupabase();
+    } catch (err) {
+      console.error('Failed to sync from Supabase at startup:', err);
+    }
   });
 }
