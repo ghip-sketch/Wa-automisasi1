@@ -15,6 +15,7 @@ import {
   HelpCircle
 } from 'lucide-react';
 import { Lead } from '../types';
+import { dataService } from '../lib/dataService';
 
 interface LeadsViewProps {
   leads: Lead[];
@@ -52,27 +53,14 @@ export default function LeadsView({ leads, fetchLeads }: LeadsViewProps) {
     if (!selectedLead) return;
 
     try {
-      // 1. Update Notes
-      await fetch(`/api/leads/${selectedLead.id}/notes`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notes: editedNotes })
-      });
-
-      // 2. Update Status
-      await fetch(`/api/leads/${selectedLead.id}/status`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: localStatus })
-      });
-
-      setIsEditingNotes(false);
-      
-      // Update local state smoothly
       const updatedLead = { ...selectedLead, notes: editedNotes, status: localStatus };
-      setSelectedLead(updatedLead);
-      
-      fetchLeads();
+      const ok = await dataService.saveLead(updatedLead);
+
+      if (ok) {
+        setIsEditingNotes(false);
+        setSelectedLead(updatedLead);
+        fetchLeads();
+      }
     } catch (err) {
       console.error('Failed saving lead edits', err);
     }
@@ -85,10 +73,8 @@ export default function LeadsView({ leads, fetchLeads }: LeadsViewProps) {
     }
 
     try {
-      const response = await fetch(`/api/leads/${id}`, {
-        method: 'DELETE',
-      });
-      if (response.ok) {
+      const ok = await dataService.deleteLead(id);
+      if (ok) {
         setSelectedLead(null);
         fetchLeads();
       }

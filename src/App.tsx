@@ -10,6 +10,7 @@ import ProfileView from './components/ProfileView';
 import AuthView from './components/AuthView';
 import { Lead, KBDocument, AppConfig, DashboardStats } from './types';
 import { Sparkles, Menu, X, Bot } from 'lucide-react';
+import { dataService } from './lib/dataService';
 
 export default function App() {
   const [userEmail, setUserEmail] = useState<string | null>(() => {
@@ -26,31 +27,22 @@ export default function App() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Fetch all backend state concurrently
+  // Fetch all backend state concurrently Use unified dataService
   const fetchAllState = async () => {
     if (!userEmail) return;
     setLoading(true);
     try {
-      const [leadsRes, docsRes, configRes, statsRes] = await Promise.all([
-        fetch('/api/leads'),
-        fetch('/api/documents'),
-        fetch('/api/config'),
-        fetch('/api/dashboard/stats'),
-      ]);
-
-      const [leadsData, docsData, configData, statsData] = await Promise.all([
-        leadsRes.json(),
-        docsRes.json(),
-        configRes.json(),
-        statsRes.json(),
-      ]);
+      const { config: configData, whatsapp } = await dataService.getConfig();
+      const leadsData = await dataService.getLeads();
+      const docsData = await dataService.getDocuments();
+      const statsData = await dataService.getStats(leadsData, configData);
 
       setLeads(leadsData);
       setDocuments(docsData);
-      setConfig(configData.config);
+      setConfig(configData);
       setStats(statsData);
     } catch (err) {
-      console.error('Failed fetching core backend state', err);
+      console.error('Failed fetching core backend state via dataService', err);
     } finally {
       setLoading(false);
     }

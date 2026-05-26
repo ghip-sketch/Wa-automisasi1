@@ -11,6 +11,7 @@ import {
   ArrowRight
 } from 'lucide-react';
 import { KBDocument } from '../types';
+import { dataService } from '../lib/dataService';
 
 interface KnowledgeBaseViewProps {
   documents: KBDocument[];
@@ -77,24 +78,18 @@ export default function KnowledgeBaseView({ documents, fetchDocuments }: Knowled
       try {
         const textContent = event.target?.result as string || '';
         
-        // POST to backend
-        const response = await fetch('/api/documents/upload', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: file.name,
-            type: file.type || 'text/plain',
-            size: file.size,
-            content: textContent,
-          }),
+        const ok = await dataService.uploadDocument({
+          name: file.name,
+          type: file.type || 'text/plain',
+          size: file.size,
+          content: textContent
         });
 
-        const data = await response.json();
-        if (response.ok) {
+        if (ok) {
           setSuccessMsg(`Berhasil mengunggah "${file.name}" ke Knowledge Base.`);
           fetchDocuments();
         } else {
-          setErrorMsg(data.error || 'Gagal menyimpan dokumen.');
+          setErrorMsg('Gagal menyimpan dokumen.');
         }
       } catch (err: any) {
         setErrorMsg(`Gagal memproses file: ${err.message}`);
@@ -119,10 +114,8 @@ export default function KnowledgeBaseView({ documents, fetchDocuments }: Knowled
     }
 
     try {
-      const response = await fetch(`/api/documents/${id}`, {
-        method: 'DELETE',
-      });
-      if (response.ok) {
+      const ok = await dataService.deleteDocument(id);
+      if (ok) {
         fetchDocuments();
       }
     } catch (err: any) {
@@ -138,19 +131,15 @@ export default function KnowledgeBaseView({ documents, fetchDocuments }: Knowled
 
     try {
       // Simulate RAG text mapping on the database query
-      const response = await fetch('/api/chat/simulate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customerName: 'Tester RAG',
-          customerPhone: '+62899999999',
-          messageText: searchQuery,
-        }),
-      });
+      const data = await dataService.simulateReply(
+        'Tester RAG',
+        '+62899999999',
+        searchQuery,
+        [],
+        null as any
+      );
       
-      const data = await response.json();
       setIsTestLoading(false);
-      
       if (data.success) {
         setTestResultChunks(data.replyText);
       }

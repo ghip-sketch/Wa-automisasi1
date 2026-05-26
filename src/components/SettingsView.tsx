@@ -1,4 +1,4 @@
-import { useState, ChangeEvent, FormEvent } from 'react';
+import { useState, ChangeEvent, FormEvent, useEffect } from 'react';
 import { 
   Settings, 
   Bot, 
@@ -9,9 +9,11 @@ import {
   Save,
   CheckCircle,
   HelpCircle,
-  Sparkles
+  Sparkles,
+  Key
 } from 'lucide-react';
 import { AppConfig } from '../types';
+import { dataService, getSavedCredentials } from '../lib/dataService';
 
 interface SettingsViewProps {
   config: AppConfig;
@@ -20,8 +22,15 @@ interface SettingsViewProps {
 
 export default function SettingsView({ config, fetchConfig }: SettingsViewProps) {
   const [formData, setFormData] = useState<AppConfig>({ ...config });
+  const [geminiKeyLocal, setGeminiKeyLocal] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [success, setSuccess] = useState(false);
+
+  useEffect(() => {
+    // Read local Gemini Key
+    const { gemini } = getSavedCredentials();
+    setGeminiKeyLocal(gemini);
+  }, []);
 
   // Sync Input Elements
   const handleChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -60,16 +69,21 @@ export default function SettingsView({ config, fetchConfig }: SettingsViewProps)
     setSuccess(false);
 
     try {
-      const response = await fetch('/api/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData)
-      });
-      if (response.ok) {
+      // Save local Gemini key as client-side fallback (e.g., when deployed on static Vercel)
+      if (geminiKeyLocal) {
+        localStorage.setItem('gemini_api_key', geminiKeyLocal);
+      } else {
+        localStorage.removeItem('gemini_api_key');
+      }
+
+      const ok = await dataService.saveConfig(formData);
+      if (ok) {
         setIsSaving(false);
         setSuccess(true);
         fetchConfig();
         setTimeout(() => setSuccess(false), 3000);
+      } else {
+        setIsSaving(false);
       }
     } catch (err) {
       setIsSaving(false);
@@ -272,8 +286,8 @@ export default function SettingsView({ config, fetchConfig }: SettingsViewProps)
               Supabase SaaS Integration
             </h3>
 
-            <div className="p-3 bg-sky-50 rounded-xl border border-sky-100 text-[10.5px] text-sky-800 leading-relaxed font-medium">
-              Aplikasi ini beroperasi menggunakan <strong>Database JSON Lokal persisten tercepat dan teruji</strong> secara default agar langsung siap pakai di sandbox. Anda bisa melampirkan credentials proyek Supabase Anda untuk mencadangkan database PostgreSQL secara real-time di produksi masa depan!
+            <div className="p-3 bg-sky-50 rounded-xl border border-sky-100 text-[10.5px] text-sky-800 leading-relaxed font-semibold">
+              Aplikasi ini beroperasi menggunakan <strong>Database JSON Lokal persisten</strong> secara default agar langsung siap pakai di sandbox. Anda bisa melampirkan credentials proyek Supabase Anda untuk mencadangkan database secara real-time di produksi masa depan (seperti deployment Vercel)!
             </div>
 
             <div className="space-y-1.5">
@@ -281,7 +295,7 @@ export default function SettingsView({ config, fetchConfig }: SettingsViewProps)
               <input
                 type="text"
                 name="supabaseUrl"
-                value={formData.supabaseUrl}
+                value={formData.supabaseUrl || ''}
                 onChange={handleChange}
                 className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:border-emerald-500 outline-none focus:ring-1 focus:ring-emerald-500 font-mono bg-slate-50/50 hover:bg-slate-50 focus:bg-white text-slate-800"
                 placeholder="https://your-project.supabase.co"
@@ -293,10 +307,33 @@ export default function SettingsView({ config, fetchConfig }: SettingsViewProps)
               <input
                 type="password"
                 name="supabaseAnonKey"
-                value={formData.supabaseAnonKey}
+                value={formData.supabaseAnonKey || ''}
                 onChange={handleChange}
                 className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:border-emerald-500 outline-none focus:ring-1 focus:ring-emerald-500 font-mono bg-slate-50/50 hover:bg-slate-50 focus:bg-white text-slate-800"
                 placeholder="eyJhbGciOiJIUzI1NiIsInR5..."
+              />
+            </div>
+          </div>
+
+          {/* Gemini AI Client integration fallback */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+            <h3 className="text-xs font-extrabold text-slate-400 uppercase tracking-widest border-b border-slate-50 pb-2 flex items-center">
+              <Key size={13} className="text-slate-400 mr-2" />
+              Google Gemini Client Integration
+            </h3>
+
+            <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100 text-[10.5px] text-emerald-800 leading-relaxed font-semibold">
+              Kunci ini digunakan sebagai <strong>fallback klien langsung</strong> untuk pemrosesan AI Simulator saat dideploy di Vercel/GitHub Pages (tanpa server backend). Disimpan dengan aman secara lokal di peramban (browser) Anda.
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700">Gemini Client API Key (Hanya untuk Vercel)</label>
+              <input
+                type="password"
+                value={geminiKeyLocal}
+                onChange={(e) => setGeminiKeyLocal(e.target.value)}
+                className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:border-emerald-500 outline-none focus:ring-1 focus:ring-emerald-500 font-mono bg-slate-50/50 hover:bg-slate-50 focus:bg-white text-slate-800"
+                placeholder="AIzaSy..."
               />
             </div>
           </div>

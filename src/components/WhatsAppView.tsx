@@ -14,6 +14,7 @@ import {
   Info
 } from 'lucide-react';
 import { AppConfig, DashboardStats } from '../types';
+import { dataService } from '../lib/dataService';
 
 interface WhatsAppViewProps {
   stats: DashboardStats;
@@ -50,25 +51,18 @@ export default function WhatsAppView({ stats, fetchStats }: WhatsAppViewProps) {
     addLog(action === 'connect' ? 'Simulating QR code capture via active client device...' : 'Disconnecting current active session...');
     
     try {
-      const response = await fetch('/api/whatsapp/toggle', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action })
-      });
-      const data = await response.json();
+      const data = await dataService.toggleWAConnection(action);
       
-      if (data.success) {
-        setTimeout(() => {
-          setLoading(false);
-          fetchStats();
-          if (action === 'connect') {
-            addLog('WhatsApp session linked successfully. Phone: +62 812-4521-9988');
-            addLog('State persistence verified: Auto-reconnect active.');
-          } else {
-            addLog('Session revoked successfully. Connection closed.');
-          }
-        }, 1200);
-      }
+      setTimeout(() => {
+        setLoading(false);
+        fetchStats();
+        if (action === 'connect') {
+          addLog('WhatsApp session linked successfully. Phone: +62 812-4521-9988');
+          addLog('State persistence verified: Auto-reconnect active.');
+        } else {
+          addLog('Session revoked successfully. Connection closed.');
+        }
+      }, 1200);
     } catch (err: any) {
       setLoading(false);
       addLog(`Error during toggling session: ${err.message}`);

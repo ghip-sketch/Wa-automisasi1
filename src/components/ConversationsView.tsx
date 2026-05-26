@@ -14,6 +14,7 @@ import {
   Clock
 } from 'lucide-react';
 import { Lead, Message, AppConfig } from '../types';
+import { dataService } from '../lib/dataService';
 
 interface ConversationsViewProps {
   leads: Lead[];
@@ -61,11 +62,7 @@ export default function ConversationsView({ leads, config, fetchLeads, fetchStat
     setAutoReplyLocal(nextVal);
     
     try {
-      await fetch('/api/config', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ autoReplyActive: nextVal })
-      });
+      await dataService.saveConfig({ ...config, autoReplyActive: nextVal });
       fetchStats();
     } catch (err) {
       console.error(err);
@@ -119,17 +116,14 @@ export default function ConversationsView({ leads, config, fetchLeads, fetchStat
     setIsTyping(true);
 
     try {
-      const response = await fetch('/api/chat/simulate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customerName: activeLead.name,
-          customerPhone: activeLead.phone,
-          messageText: messageToSend
-        }),
-      });
-
-      const data = await response.json();
+      const data = await dataService.simulateReply(
+        activeLead.name,
+        activeLead.phone,
+        messageToSend,
+        leads,
+        config
+      );
+      
       setIsTyping(false);
 
       if (data.success) {
@@ -139,12 +133,6 @@ export default function ConversationsView({ leads, config, fetchLeads, fetchStat
 
         // Push response conversation directly
         if (data.replyText) {
-          const botMsg: Message = {
-            id: 'sim_m_' + Date.now() + '_bot',
-            sender: 'assistant',
-            text: data.replyText,
-            timestamp: new Date().toISOString()
-          };
           setActiveLead({
             ...data.lead,
             chatHistory: [...data.lead.chatHistory]
