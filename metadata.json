@@ -1,0 +1,6 @@
+{
+  "name": "WAI Assistant",
+  "description": "WhatsApp AI Business Assistant - Automate your WhatsApp customer service with Gemini AI 24/7.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

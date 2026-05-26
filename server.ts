@@ -1,0 +1,638 @@
+import express from 'express';
+import path from 'path';
+import fs from 'fs';
+import { createServer as createViteServer } from 'vite';
+import { GoogleGenAI } from '@google/genai';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+const app = express();
+const PORT = 3000;
+const DB_PATH = path.join(process.cwd(), 'db.json');
+
+// Initialize Gemini Client
+let ai: GoogleGenAI | null = null;
+if (process.env.GEMINI_API_KEY) {
+  ai = new GoogleGenAI({
+    apiKey: process.env.GEMINI_API_KEY,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      },
+    },
+  });
+}
+
+// Interceptor to parse JSON bodies
+app.use(express.json({ limit: '50mb' }));
+
+// Local database default structures
+interface LocalDB {
+  config: {
+    businessName: string;
+    businessDesc: string;
+    autoReplyActive: boolean;
+    systemPrompt: string;
+    tone: 'Professional' | 'Casual' | 'Formal';
+    welcomeMessage: string;
+    workingHours: {
+      start: string;
+      end: string;
+      enabled: boolean;
+    };
+    outOfHoursMessage: string;
+    supabaseUrl: string;
+    supabaseAnonKey: string;
+  };
+  leads: Array<{
+    id: string;
+    name: string;
+    phone: string;
+    firstContact: string;
+    lastContact: string;
+    chatHistory: Array<{
+      id: string;
+      sender: 'customer' | 'assistant';
+      text: string;
+      timestamp: string;
+    }>;
+    status: 'Baru' | 'Prospek' | 'Follow Up' | 'Closing';
+    notes: string;
+  }>;
+  documents: Array<{
+    id: string;
+    name: string;
+    type: string;
+    size: number;
+    uploadDate: string;
+    content: string; // Plain text stored for RAG chunks
+    chunkCount: number;
+  }>;
+  whatsapp: {
+    isConnected: boolean;
+    connectedNumber: string;
+    deviceName: string;
+    status: 'Connected' | 'Disconnected' | 'Connecting';
+  };
+}
+
+const defaultDB: LocalDB = {
+  config: {
+    businessName: 'Coffee & Co. Jakarta',
+    businessDesc: 'Kafe premium di Jakarta Selatan yang menjual kopi artisan, roti panggang segar, dan area coworking yang nyaman.',
+    autoReplyActive: true,
+    systemPrompt: 'Anda adalah Asisten Virtual WhatsApp resmi Kafe Coffee & Co. Jakarta. Jawab pelanggan dengan sopan, ramah, dan berikan informasi akurat sesuai Pengetahuan Bisnis kami. Jika pertanyaan di luar jangkauan, tawarkan untuk diteruskan ke tim manusia.',
+    tone: 'Casual',
+    welcomeMessage: 'Halo! Terima kasih telah menghubungi Coffee & Co. Jakarta. Ada yang bisa kami bantu hari ini? ☕✨',
+    workingHours: {
+      start: '09:00',
+      end: '21:00',
+      enabled: true,
+    },
+    outOfHoursMessage: 'Terima kasih telah menghubungi kami. Saat ini kafe kami sedang tutup (Jam Operasional: 09:00 - 21:00 WIB). AI kami masih dapat menjawab beberapa FAQ umum, namun admin manusia akan membalas pesan Anda besok pagi! Kopi segar menunggu Anda besok! ☕',
+    supabaseUrl: '',
+    supabaseAnonKey: '',
+  },
+  leads: [
+    {
+      id: 'l1',
+      name: 'Budi Santoso',
+      phone: '+6281234567890',
+      firstContact: '2026-05-25T10:30:00Z',
+      lastContact: '2026-05-25T11:15:00Z',
+      status: 'Prospek',
+      notes: 'Tertarik memesan katering kopi susu untuk acara kantor 50 porsi hari Jumat.',
+      chatHistory: [
+        { id: 'm1', sender: 'customer', text: 'Halo, apakah melayani pemesanan kopi botol besar untuk katering?', timestamp: '2026-05-25T10:30:00Z' },
+        { id: 'm2', sender: 'assistant', text: 'Halo Budi! Ya, di Coffee & Co. Jakarta kami menyediakan paket Katering Kopi 1 Liter dan botol personal (250ml) untuk acara spesial Anda. Kami memiliki diskon khusus untuk pembelian di atas 20 botol!', timestamp: '2026-05-25T10:31:00Z' },
+        { id: 'm3', sender: 'customer', text: 'Boleh minta daftar harganya? Saya butuh sekitar 50 porsi untuk Jumat ini.', timestamp: '2026-05-25T11:12:00Z' },
+        { id: 'm4', sender: 'assistant', text: 'Baik Budi, daftar harga paket event kami kirimkan. Untuk 50 porsi, kami berikan diskon 15% gratis ongkir Jakarta Selatan. Mau kami bantu buatkan penawaran resminya?', timestamp: '2026-05-25T11:15:00Z' }
+      ]
+    },
+    {
+      id: 'l2',
+      name: 'Siti Rahma',
+      phone: '+6281987654321',
+      firstContact: '2026-05-25T14:05:00Z',
+      lastContact: '2026-05-25T14:10:00Z',
+      status: 'Baru',
+      notes: 'Bertanya tentang menu vegan/non-dairy milk.',
+      chatHistory: [
+        { id: 'm5', sender: 'customer', text: 'Apakah kopi susu pandannya bisa pakai oat milk?', timestamp: '2026-05-25T14:05:00Z' },
+        { id: 'm6', sender: 'assistant', text: 'Halo Siti! Tentu bisa, di Coffee & Co. Jakarta semua menu kopi susu kami bisa diganti ke Oat Milk atau Almond Milk dengan tambahan biaya Rp 8.000 saja. Rasanya tetap creamy dan ramah vegan!', timestamp: '2026-05-25T14:10:00Z' }
+      ]
+    }
+  ],
+  documents: [
+    {
+      id: 'doc1',
+      name: 'Daftar Menu & Harga 2026.txt',
+      type: 'text/plain',
+      size: 450,
+      uploadDate: '2026-05-25T01:00:00Z',
+      chunkCount: 3,
+      content: `DAFTAR MENU COFFEE & CO. JAKARTA:
+1. Espresso: Single (Rp 20.000), Double (Rp 25.000)
+2. Americano / Long Black: Panas (Rp 28.000), Dingin (Rp 30.000)
+3. Cappuccino / Cafe Latte: Panas (Rp 35.000), Dingin (Rp 38.000)
+4. Kopi Susu Pandan Wangi (Best Seller): Dingin (Rp 35.000) - Espresso blend, susu segar, sirup pandan buatan rumah asli.
+5. Matcha Latte Premium: Dingin (Rp 38.000)
+6. Roti bakar Srikaya & Butter: Rp 28.000
+7. Croissant Almond: Rp 32.000
+
+Pilihan Susu Alternatif: Oat Milk / Almond Milk (+ Rp 8.000)`
+    },
+    {
+      id: 'doc2',
+      name: 'Kebijakan Reservasi & Coworking.txt',
+      type: 'text/plain',
+      size: 610,
+      uploadDate: '2026-05-25T02:00:00Z',
+      chunkCount: 2,
+      content: `KEBIJAKAN RESERVASI AREA COWORKING COFFEE & CO.:
+- Area umum kafe bebas digunakan tanpa charge minimum, cukup memesan menu kafe. Sedia stopkontak melimpah dan Wi-Fi kecepatan tinggi (100 Mbps).
+- Ruang Rapat Privat: Kapasitas sampai 8 orang. Biaya sewa Rp 150.000/jam (termasuk air mineral, proyektor, dan papan tulis). Dapatkan diskon sewa sebesar 50% jika memesan makanan/minuman kafe minimal Rp 300.000.
+- Jam Operasional Coworking Area mengikuti jam operasional utama kafe: buka dari jam 09:00 - 21:00 WIB.`
+    }
+  ],
+  whatsapp: {
+    isConnected: true,
+    connectedNumber: '+62 812-4521-9988',
+    deviceName: 'iPhone 15 Pro - WAI Production',
+    status: 'Connected'
+  }
+};
+
+// Ensure database load/store functions are safe
+function readDB(): LocalDB {
+  try {
+    if (!fs.existsSync(DB_PATH)) {
+      fs.writeFileSync(DB_PATH, JSON.stringify(defaultDB, null, 2));
+      return defaultDB;
+    }
+    const data = fs.readFileSync(DB_PATH, 'utf-8');
+    return JSON.parse(data);
+  } catch (error) {
+    console.error('Failed reading DB, falling back to local memory', error);
+    return defaultDB;
+  }
+}
+
+function writeDB(data: LocalDB) {
+  try {
+    fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
+  } catch (error) {
+    console.error('Failed writing DB to disk', error);
+  }
+}
+
+// Simple RAG retrieval helper
+function retrieveContext(query: string, documents: Array<{ content: string }>): string {
+  if (!documents || documents.length === 0) return '';
+  
+  // Clean tokens from query
+  const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+  let scoredChunks: Array<{ text: string; score: number }> = [];
+
+  for (const doc of documents) {
+    // Split into smaller chunks by paragraphs
+    const paragraphs = doc.content.split(/\n{2,}|\n(?=[A-Z0-9]\.)/);
+    for (const para of paragraphs) {
+      if (!para.trim()) continue;
+      let score = 0;
+      const paraLower = para.toLowerCase();
+      
+      // Rank based on query keyword matches
+      for (const word of queryWords) {
+        if (paraLower.includes(word)) {
+          score += 1;
+        }
+      }
+      
+      if (score > 0) {
+        scoredChunks.push({ text: para, score });
+      }
+    }
+  }
+
+  // Sort by score
+  scoredChunks.sort((a, b) => b.score - a.score);
+  
+  // Return top 3 chunks concatenated
+  const topChunks = scoredChunks.slice(0, 3).map(c => c.text);
+  if (topChunks.length > 0) {
+    return `\n=== INFORMASI BISNIS DARI KNOWLEDGE BASE ===\n${topChunks.join('\n\n')}\n============================================\n`;
+  }
+
+  // Fallback to general documents summaries
+  return `\n=== INFORMASI BISNIS DARI KNOWLEDGE BASE ===\n${documents.map(d => d.content).join('\n\n')}\n============================================\n`;
+}
+
+// API: Get app current settings & stats
+app.get('/api/config', (req, res) => {
+  const db = readDB();
+  res.json({ config: db.config, whatsapp: db.whatsapp });
+});
+
+// API: Update app config
+app.post('/api/config', (req, res) => {
+  const db = readDB();
+  db.config = { ...db.config, ...req.body };
+  writeDB(db);
+  res.json({ success: true, config: db.config });
+});
+
+// API: Simulated WhatsApp connection trigger and status toggle
+app.post('/api/whatsapp/toggle', (req, res) => {
+  const db = readDB();
+  const { action } = req.body; // 'connect', 'disconnect'
+  
+  if (action === 'connect') {
+    db.whatsapp.status = 'Connected';
+    db.whatsapp.isConnected = true;
+    db.whatsapp.connectedNumber = '+62 812-4521-9988';
+    db.whatsapp.deviceName = 'iPhone 15 Pro - WAI Production';
+  } else {
+    db.whatsapp.status = 'Disconnected';
+    db.whatsapp.isConnected = false;
+    db.whatsapp.connectedNumber = '';
+    db.whatsapp.deviceName = '';
+  }
+  
+  writeDB(db);
+  res.json({ success: true, whatsapp: db.whatsapp });
+});
+
+// API: Get KB documents
+app.get('/api/documents', (req, res) => {
+  const db = readDB();
+  res.json(db.documents);
+});
+
+// API: Upload KB documents
+app.post('/api/documents/upload', (req, res) => {
+  const db = readDB();
+  const { name, type, size, content } = req.body;
+
+  if (!name || !content) {
+    return res.status(400).json({ error: 'Name and content are required' });
+  }
+
+  // Rough estimation of chunks based on line breaks
+  const paragraphCount = content.split('\n').filter((l: string) => l.trim().length > 0).length;
+  const chunkCount = Math.max(1, Math.ceil(paragraphCount / 4));
+
+  const newDoc = {
+    id: 'doc_' + Date.now(),
+    name,
+    type: type || 'text/plain',
+    size: size || content.length,
+    uploadDate: new Date().toISOString(),
+    content,
+    chunkCount,
+  };
+
+  db.documents.push(newDoc);
+  writeDB(db);
+  res.json({ success: true, document: newDoc });
+});
+
+// API: Delete KB document
+app.delete('/api/documents/:id', (req, res) => {
+  const db = readDB();
+  const index = db.documents.findIndex(d => d.id === req.params.id);
+  if (index !== -1) {
+    const deleted = db.documents.splice(index, 1);
+    writeDB(db);
+    return res.json({ success: true, deleted: deleted[0] });
+  }
+  res.status(404).json({ error: 'Document not found' });
+});
+
+// API: Get Leads list
+app.get('/api/leads', (req, res) => {
+  const db = readDB();
+  res.json(db.leads);
+});
+
+// API: Add/Update Lead directly
+app.post('/api/leads', (req, res) => {
+  const db = readDB();
+  const leadData = req.body;
+  if (!leadData.name || !leadData.phone) {
+    return res.status(400).json({ error: 'Name and phone are required' });
+  }
+
+  const existingIndex = db.leads.findIndex(l => l.phone === leadData.phone || l.id === leadData.id);
+  if (existingIndex !== -1) {
+    db.leads[existingIndex] = { ...db.leads[existingIndex], ...leadData, lastContact: new Date().toISOString() };
+    writeDB(db);
+    res.json({ success: true, lead: db.leads[existingIndex] });
+  } else {
+    const newLead = {
+      id: 'l_' + Date.now(),
+      name: leadData.name,
+      phone: leadData.phone,
+      firstContact: new Date().toISOString(),
+      lastContact: new Date().toISOString(),
+      chatHistory: leadData.chatHistory || [],
+      status: leadData.status || 'Baru',
+      notes: leadData.notes || '',
+    };
+    db.leads.push(newLead);
+    writeDB(db);
+    res.json({ success: true, lead: newLead });
+  }
+});
+
+// API: Update Lead status
+app.post('/api/leads/:id/status', (req, res) => {
+  const db = readDB();
+  const lead = db.leads.find(l => l.id === req.params.id);
+  if (lead) {
+    lead.status = req.body.status;
+    writeDB(db);
+    return res.json({ success: true, lead });
+  }
+  res.status(404).json({ error: 'Lead not found' });
+});
+
+// API: Update Lead notes
+app.post('/api/leads/:id/notes', (req, res) => {
+  const db = readDB();
+  const lead = db.leads.find(l => l.id === req.params.id);
+  if (lead) {
+    lead.notes = req.body.notes;
+    writeDB(db);
+    return res.json({ success: true, lead });
+  }
+  res.status(404).json({ error: 'Lead not found' });
+});
+
+// API: Delete Lead
+app.delete('/api/leads/:id', (req, res) => {
+  const db = readDB();
+  const index = db.leads.findIndex(l => l.id === req.params.id);
+  if (index !== -1) {
+    db.leads.splice(index, 1);
+    writeDB(db);
+    return res.json({ success: true });
+  }
+  res.status(404).json({ error: 'Lead not found' });
+});
+
+// API: Get app dashboard metrics
+app.get('/api/dashboard/stats', (req, res) => {
+  const db = readDB();
+  const messageCount = db.leads.reduce((acc, lead) => acc + lead.chatHistory.length, 0);
+  const leadsCount = db.leads.filter(l => l.status !== 'Baru').length;
+  
+  res.json({
+    totalCustomers: db.leads.length,
+    totalConversations: db.leads.length,
+    messagesToday: messageCount + 4, // Simulated active count + history
+    totalLeads: leadsCount,
+    connectionStatus: db.whatsapp.status,
+    connectedNumber: db.whatsapp.connectedNumber,
+    connectedName: db.whatsapp.deviceName,
+  });
+});
+
+// API: Simulate checking operational hours
+function isWithinWorkingHours(config: LocalDB['config']): { within: boolean; feedback: string } {
+  if (!config.workingHours.enabled) {
+    return { within: true, feedback: '' };
+  }
+
+  const now = new Date();
+  const formattedTime = now.toLocaleTimeString('id-ID', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: 'Asia/Jakarta'
+  });
+
+  const [currentHour, currentMinute] = formattedTime.split(':').map(Number);
+  const [startHour, startMinute] = config.workingHours.start.split(':').map(Number);
+  const [endHour, endMinute] = config.workingHours.end.split(':').map(Number);
+
+  const currentMinutes = currentHour * 60 + currentMinute;
+  const startMinutes = startHour * 60 + startMinute;
+  const endMinutes = endHour * 60 + endMinute;
+
+  const liesBetween = currentMinutes >= startMinutes && currentMinutes <= endMinutes;
+
+  return {
+    within: liesBetween,
+    feedback: liesBetween ? '' : config.outOfHoursMessage,
+  };
+}
+
+// API: WHATSAPP AUTO-REPLY CHAT SIMULATOR (using Gemini & RAG)
+app.post('/api/chat/simulate', async (req, res) => {
+  const db = readDB();
+  const { customerName, customerPhone, messageText } = req.body;
+
+  if (!customerPhone || !messageText) {
+    return res.status(400).json({ error: 'customerPhone and messageText are required' });
+  }
+
+  // Find or Create Lead
+  let lead = db.leads.find(l => l.phone === customerPhone);
+  const isNewLead = !lead;
+
+  if (isNewLead) {
+    lead = {
+      id: 'l_' + Date.now(),
+      name: customerName || 'Pelanggan Baru',
+      phone: customerPhone,
+      firstContact: new Date().toISOString(),
+      lastContact: new Date().toISOString(),
+      chatHistory: [],
+      status: 'Baru',
+      notes: 'Terbuat otomatis dari chat masuk simulator.',
+    };
+    db.leads.push(lead);
+  } else {
+    lead.lastContact = new Date().toISOString();
+    if (customerName && lead.name === 'Pelanggan Baru') {
+      lead.name = customerName;
+    }
+  }
+
+  // Push user message to history
+  const customerMsg = {
+    id: 'm_' + Date.now() + '_cust',
+    sender: 'customer' as const,
+    text: messageText,
+    timestamp: new Date().toISOString()
+  };
+  lead.chatHistory.push(customerMsg);
+
+  // Check if auto-reply is active globally
+  if (!db.config.autoReplyActive) {
+    writeDB(db);
+    return res.json({
+      success: true,
+      lead,
+      replyText: '',
+      skipped: 'Auto reply is currently turned OFF. Admin must reply manually.'
+    });
+  }
+
+  // Verify connection status
+  if (!db.whatsapp.isConnected) {
+    writeDB(db);
+    return res.json({
+      success: true,
+      lead,
+      replyText: '',
+      skipped: 'WhatsApp is currently disconnected. Connection required to auto-reply.'
+    });
+  }
+
+  // Check Operational Hours & handle out-of-hours automatic greetings
+  const hoursCheck = isWithinWorkingHours(db.config);
+  
+  // Decide AI prompt & prompt tone instructions
+  const toneInstruction = {
+    Professional: 'Ketik balasan Anda dengan bahasa Indonesia yang sangat sopan, profesional, jelas, menggunakan kata sapaan resmi (Bapak/Ibu/Anda) tanpa singkatan kasar.',
+    Casual: 'Ketik balasan Anda dengan gaya kasual, ramah, bersahabat, menggunakan sapaan hangat seperti Kak, Kakak, atau nama mereka secara santai, dan boleh menggunakan beberapa emoji pendukung.',
+    Formal: 'Ketik balasan Anda dengan gaya bahasa formal, tata bahasa baku sesuai kamus bahasa Indonesia, terstruktur, sopan, dan langsung pada sasaran.'
+  }[db.config.tone] || 'Gunakan gaya bahasa profesional.';
+
+  // Build RAG prompt
+  const kbContext = retrieveContext(messageText, db.documents);
+  const chatHistoryContext = lead.chatHistory
+    .slice(-6, -1) // Grab last few messages as trailing context excluding the current new message
+    .map(msg => `${msg.sender === 'customer' ? 'Pelanggan' : 'Anda (Asisten WAI)'}: ${msg.text}`)
+    .join('\n');
+
+  const finalSystemInstruction = `
+${db.config.systemPrompt}
+
+GAYA BAHASA & NADA BICARA KORPORAT:
+- Nama Bisnis: ${db.config.businessName}
+- Deskripsi Bisnis: ${db.config.businessDesc}
+- Nada bicara wajib: ${db.config.tone}
+- Aturan Nada: ${toneInstruction}
+
+KONTEN PENGETAHUAN PENDUKUNG (RAG):
+${kbContext}
+
+RIWAYAT PERCAKAPAN SINGKAT SEBELUMNYA:
+${chatHistoryContext}
+
+TUGAS UTAMA:
+1. Jalin komunikasi ramah dengan pelanggan yang mengirimkan pesan berikut: "${messageText}"
+2. Berikan informasi seakurat mungkin hanya berdasarkan informasi bisnis di atas. Jika tidak ada informasinya di pengetahuan bisnis, jawab dengan ramah bahwa Anda belum mengetahuinya dan tawarkan untuk menghubungkan ke admin manusia.
+3. Selalu dorong pelanggan ke arah pembelian atau reservasi dengan ramah.
+4. Jawablah langsung sebagai asisten profesional tanpa mencantumkan label "Jawaban:" atau Metadata lainnya.
+`;
+
+  let responseText = '';
+
+  if (!hoursCheck.within) {
+    // Return out-of-hours reply directly
+    responseText = hoursCheck.feedback;
+  } else if (!ai) {
+    // If Gemini key is not configured, generate a high-quality mock response
+    const lowercaseMsg = messageText.toLowerCase();
+    if (lowercaseMsg.includes('menu') || lowercaseMsg.includes('harga') || lowercaseMsg.includes('makan') || lowercaseMsg.includes('kopi')) {
+      responseText = `Halo ${lead.name}! Tentu, berikut menu andalan kami di ${db.config.businessName}:\n1. Kopi Susu Pandan Wangi (Rp 35.000) - Espresso, susu segar & sirup pandan khas.\n2. Latte / Cappuccino (Rp 38.000)\n3. Americano (Rp 30.000)\n4. Roti Bakar Srikaya Butter (Rp 28.000).\n\nApakah ada menu tertentu yang ingin Kakak pesan melalui WhatsApp? Kami siap mencatat pesanan Anda! ☕🥐`;
+    } else if (lowercaseMsg.includes('reservasi') || lowercaseMsg.includes('coworking') || lowercaseMsg.includes('sewa') || lowercaseMsg.includes('ruang')) {
+      responseText = `Halo ${lead.name}! Untuk reservasi area di ${db.config.businessName}, kami menyediakan:\n- Area umum coworking: Bebas charge minimum (Wi-Fi 100 Mbps & banyak colokan).\n- Ruang Rapat Privat: Kapasitas 8 orang seharga Rp 150.000/jam (dilengkapi papan tulis & proyektor). Sewa diskon 50% jika memesan konsumsi min. Rp 300.000.\n\nMau kami bantu jadwalkan ruang rapat untuk hari apa dan jam berapa, Kak? 😊`;
+    } else {
+      responseText = `${db.config.welcomeMessage.replace('Halo!', `Halo ${lead.name}!`)}\n\nSaya adalah asisten AI dari ${db.config.businessName}. Ada yang ingin Anda tanyakan seputar menu, reservasi, atau jam buka kafe kami?`;
+    }
+  } else {
+    try {
+      // Call Gemini API server-side
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.5-flash',
+        contents: messageText,
+        config: {
+          systemInstruction: finalSystemInstruction,
+          temperature: 0.7,
+        },
+      });
+
+      responseText = response.text || 'Maaf, saya sedang mengalami kendala teknis singkat. Mohon tunggu beberapa saat.';
+    } catch (err: any) {
+      console.error('Gemini API call failed:', err);
+      responseText = `Halo ${lead.name}! Maaf sekali terjadi gangguan pada sistem AI saya (Error: ${err.message || 'API Issues'}).\n\nUntuk kenyamanan, kami kirimkan teks sambutan standar: ${db.config.welcomeMessage}`;
+    }
+  }
+
+  // Auto Reply logic: AI categorizes lead based on context
+  // Let's perform simple heuristic categorization
+  const textMatches = messageText.toLowerCase();
+  
+  if (lead.status === 'Baru') {
+    lead.status = 'Prospek'; // Immediately classify as Prospect since they asked a question
+  }
+  
+  if (textMatches.includes('order') || textMatches.includes('pesan') || textMatches.includes('beli') || textMatches.includes('booking') || textMatches.includes('reservasi') || textMatches.includes('bayar')) {
+    lead.status = 'Follow Up';
+  }
+  
+  if (textMatches.includes('deal') || textMatches.includes('transfer') || textMatches.includes('sudah bayar') || textMatches.includes('selesai') || textMatches.includes('closing')) {
+    lead.status = 'Closing';
+  }
+
+  // Push response message to history
+  const assistantMsg = {
+    id: 'm_' + Date.now() + '_asst',
+    sender: 'assistant' as const,
+    text: responseText,
+    timestamp: new Date().toISOString()
+  };
+  lead.chatHistory.push(assistantMsg);
+
+  writeDB(db);
+
+  res.json({
+    success: true,
+    lead,
+    replyText: responseText,
+  });
+});
+
+// Serve Vite files or static build depending on production env
+if (process.env.NODE_ENV !== 'production') {
+  createViteServer({
+    server: { middlewareMode: true },
+    appType: 'spa',
+  }).then((vite) => {
+    app.use(vite.middlewares);
+    
+    // Fallback everything else to SPA HTML via Vite
+    app.get('*', async (req, res, next) => {
+      const url = req.originalUrl;
+      try {
+        let template = fs.readFileSync(path.resolve(process.cwd(), 'index.html'), 'utf-8');
+        template = await vite.transformIndexHtml(url, template);
+        res.status(200).set({ 'Content-Type': 'text/html' }).end(template);
+      } catch (e) {
+        vite.ssrFixStacktrace(e as Error);
+        next(e);
+      }
+    });
+
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`Development custom fullstack server active on port ${PORT}`);
+    });
+  });
+} else {
+  const distPath = path.join(process.cwd(), 'dist');
+  app.use(express.static(distPath));
+  
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
+
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Production custom fullstack server active on port ${PORT}`);
+  });
+}
