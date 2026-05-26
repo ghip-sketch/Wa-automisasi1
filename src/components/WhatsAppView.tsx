@@ -96,25 +96,70 @@ export default function WhatsAppView({ stats, fetchStats, config }: WhatsAppView
         <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col items-center justify-between text-center relative overflow-hidden h-fit">
           {config?.whatsappMode === 'Fonnte' ? (
             <div className="py-6 flex flex-col items-center w-full">
-              <div className="w-16 h-16 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mb-4 border border-emerald-100 animate-pulse">
-                <Wifi size={28} />
-              </div>
-              <span className="bg-emerald-50 text-emerald-800 text-[10px] font-bold px-3 py-1.5 rounded-full border border-emerald-100 uppercase tracking-widest font-mono">
-                FONNTE LIVE ACTIVE
-              </span>
+              {stats.connectionStatus === 'Connected' ? (
+                <>
+                  <div className="w-16 h-16 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mb-4 border border-emerald-100 animate-pulse">
+                    <Wifi size={28} />
+                  </div>
+                  <span className="bg-emerald-50 text-emerald-800 text-[10px] font-bold px-3 py-1.5 rounded-full border border-emerald-100 uppercase tracking-widest font-mono">
+                    FONNTE WA ONLINE
+                  </span>
+                </>
+              ) : (
+                <>
+                  <div className="w-16 h-16 bg-rose-50 text-rose-500 rounded-full flex items-center justify-center mb-4 border border-rose-100">
+                    <WifiOff size={28} />
+                  </div>
+                  <span className="bg-rose-50 text-rose-800 text-[10px] font-bold px-3 py-1.5 rounded-full border border-rose-100 uppercase tracking-widest font-mono">
+                    WA OFFLINE (DISCONNECTED)
+                  </span>
+                </>
+              )}
               
-              <div className="mt-6 space-y-2.5 text-center w-full px-4 text-xs font-semibold">
+              <div className="mt-6 space-y-3.5 text-center w-full px-4 text-xs font-semibold">
+                {/* Diagnostics and troubleshooting */}
+                {stats.fonnteReason && (
+                  <div className="bg-rose-50 border border-rose-100 text-rose-800 rounded-xl p-3 text-left space-y-1">
+                    <span className="font-extrabold text-[9px] text-rose-600 uppercase tracking-wider block">KESALAHAN TOKEN API</span>
+                    <p className="text-[11px] leading-normal font-sans text-rose-700">{stats.fonnteReason}</p>
+                    <p className="text-[10px] text-slate-500 font-normal leading-relaxed">
+                      Silakan periksa kembali Token Anda di menu <b>Pengaturan</b>. Pastikan tidak ada spasi di awal/akhir kunci.
+                    </p>
+                  </div>
+                )}
+
+                {stats.connectionStatus !== 'Connected' && !stats.fonnteReason && (
+                  <div className="bg-amber-50 border border-amber-150 text-amber-800 rounded-xl p-3.5 text-left space-y-1 bg-amber-50/50">
+                    <span className="font-extrabold text-[9px] text-amber-600 uppercase tracking-wider block">BELUM SCAN QR DI FONNTE</span>
+                    <p className="text-[11px] leading-normal text-amber-900 font-sans">
+                      Status device Anda di Fonnte masih <b>disconnect</b> (terputus).
+                    </p>
+                    <ul className="text-[10px] text-amber-800 font-medium space-y-1.5 list-disc pl-4 mt-2 leading-relaxed">
+                      <li>Masuk ke akun <a href="https://fonnte.com" target="_blank" rel="noopener noreferrer" className="text-indigo-600 underline font-bold">fonnte.com</a>.</li>
+                      <li>Pergi ke menu <b>Device</b> di dashboard Fonnte.</li>
+                      <li>Di panel Fonnte, silakan klik <b>&quot;Scan QR&quot;</b> atau hubungkan nomor Anda.</li>
+                      <li>Gunakan HP Anda (WhatsApp &gt; Linked Devices) untuk memindai QR yang muncul di Fonnte.</li>
+                      <li>Setelah status di dashboard Fonnte berubah menjadi <b>connect</b> (online), status di dashboard ini akan otomatis online!</li>
+                    </ul>
+                  </div>
+                )}
+
+                {stats.fonnteQuota && (
+                  <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-left">
+                    <p className="text-[9px] text-slate-400 font-bold uppercase">Sisa Kuota / Paket Fonnte</p>
+                    <p className="text-xs font-bold text-slate-800 font-sans mt-0.5">{stats.fonnteQuota} Pesan ({stats.fonntePackage})</p>
+                    <p className="text-[9px] text-slate-400 mt-0.5 mt-1">Berlaku sampai: {stats.fonnteExpired}</p>
+                  </div>
+                )}
+
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-left">
                   <p className="text-[9px] text-slate-400 font-bold uppercase">Nomor WhatsApp Bisnis</p>
-                  <p className="text-xs font-bold text-slate-800 font-mono mt-0.5">{config.whatsappPhone || 'Terkonfigurasi'}</p>
+                  <p className="text-xs font-bold text-slate-800 font-mono mt-0.5">{config?.whatsappPhone || 'Terkonfigurasi'}</p>
                 </div>
+                
                 <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-left">
                   <p className="text-[9px] text-slate-400 font-bold uppercase">Tipe Gateway</p>
                   <p className="text-xs font-bold text-indigo-700 mt-0.5">Cloud Multi-Device API</p>
-                </div>
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-left">
-                  <p className="text-[9px] text-slate-400 font-bold uppercase">Token Fonnte</p>
-                  <p className="text-xs font-mono text-slate-600 mt-0.5">•••••{config.whatsappToken ? config.whatsappToken.slice(-4) : 'diatur'}</p>
                 </div>
               </div>
 

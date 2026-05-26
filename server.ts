@@ -554,6 +554,12 @@ app.get('/api/dashboard/stats', async (req, res) => {
   let connectedNumber = db.whatsapp.connectedNumber;
   let connectedName = db.whatsapp.deviceName;
 
+  let fonnteStatus = '';
+  let fonnteReason = '';
+  let fonnteQuota = '';
+  let fonntePackage = '';
+  let fonnteExpired = '';
+
   if (db.config.whatsappMode === 'Fonnte' && db.config.whatsappToken) {
     try {
       console.log('[Fonnte Status Check] Checking device status with Fonnte API...');
@@ -566,33 +572,41 @@ app.get('/api/dashboard/stats', async (req, res) => {
       const data = await response.json();
       console.log('[Fonnte Status Response]', data);
       
-      if (data && data.status === true) {
-        if (data.device_status === 'connect') {
-          connectionStatus = 'Connected';
-          connectedNumber = data.device || db.config.whatsappPhone || '';
-          connectedName = data.name || db.config.businessName || 'Fonnte Connected Device';
+      if (data) {
+        if (data.status === true) {
+          fonnteStatus = data.device_status || '';
+          fonnteQuota = data.quota || '';
+          fonntePackage = data.package || '';
+          fonnteExpired = data.expired || '';
           
-          db.whatsapp.status = 'Connected';
-          db.whatsapp.isConnected = true;
-          db.whatsapp.connectedNumber = connectedNumber;
-          db.whatsapp.deviceName = connectedName;
-          writeDB(db);
+          if (data.device_status === 'connect') {
+            connectionStatus = 'Connected';
+            connectedNumber = data.device || db.config.whatsappPhone || '';
+            connectedName = data.name || db.config.businessName || 'Fonnte Connected Device';
+            
+            db.whatsapp.status = 'Connected';
+            db.whatsapp.isConnected = true;
+            db.whatsapp.connectedNumber = connectedNumber;
+            db.whatsapp.deviceName = connectedName;
+            writeDB(db);
+          } else {
+            connectionStatus = 'Disconnected';
+            db.whatsapp.status = 'Disconnected';
+            db.whatsapp.isConnected = false;
+            writeDB(db);
+          }
         } else {
           connectionStatus = 'Disconnected';
           db.whatsapp.status = 'Disconnected';
           db.whatsapp.isConnected = false;
+          fonnteReason = data.reason || 'Token tidak valid/tidak ditemukan';
           writeDB(db);
         }
-      } else {
-        connectionStatus = 'Disconnected';
-        db.whatsapp.status = 'Disconnected';
-        db.whatsapp.isConnected = false;
-        writeDB(db);
       }
     } catch (err) {
       console.error('[Fonnte Status API Error]', err);
-      // Fallback: If they provided a token but api failed or disconnected, default to Disconnected
       connectionStatus = 'Disconnected';
+      fonnteReason = 'Koneksi API Gagal / Timeout';
     }
   }
   
@@ -604,6 +618,11 @@ app.get('/api/dashboard/stats', async (req, res) => {
     connectionStatus,
     connectedNumber,
     connectedName,
+    fonnteStatus,
+    fonnteReason,
+    fonnteQuota,
+    fonntePackage,
+    fonnteExpired,
   });
 });
 

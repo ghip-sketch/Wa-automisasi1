@@ -63,4 +63,9 @@ export interface DashboardStats {
   connectionStatus: 'Connected' | 'Disconnected' | 'Connecting';
   connectedNumber: string;
   connectedName: string;
+  fonnteStatus?: string;
+  fonnteReason?: string;
+  fonnteQuota?: string;
+  fonntePackage?: string;
+  fonnteExpired?: string;
 }
