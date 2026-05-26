@@ -545,19 +545,65 @@ app.delete('/api/leads/:id', (req, res) => {
 });
 
 // API: Get app dashboard metrics
-app.get('/api/dashboard/stats', (req, res) => {
+app.get('/api/dashboard/stats', async (req, res) => {
   const db = readDB();
   const messageCount = db.leads.reduce((acc, lead) => acc + lead.chatHistory.length, 0);
   const leadsCount = db.leads.filter(l => l.status !== 'Baru').length;
+  
+  let connectionStatus = db.whatsapp.status;
+  let connectedNumber = db.whatsapp.connectedNumber;
+  let connectedName = db.whatsapp.deviceName;
+
+  if (db.config.whatsappMode === 'Fonnte' && db.config.whatsappToken) {
+    try {
+      console.log('[Fonnte Status Check] Checking device status with Fonnte API...');
+      const response = await fetch('https://api.fonnte.com/device', {
+        method: 'POST',
+        headers: {
+          'Authorization': db.config.whatsappToken.trim()
+        }
+      });
+      const data = await response.json();
+      console.log('[Fonnte Status Response]', data);
+      
+      if (data && data.status === true) {
+        if (data.device_status === 'connect') {
+          connectionStatus = 'Connected';
+          connectedNumber = data.device || db.config.whatsappPhone || '';
+          connectedName = data.name || db.config.businessName || 'Fonnte Connected Device';
+          
+          db.whatsapp.status = 'Connected';
+          db.whatsapp.isConnected = true;
+          db.whatsapp.connectedNumber = connectedNumber;
+          db.whatsapp.deviceName = connectedName;
+          writeDB(db);
+        } else {
+          connectionStatus = 'Disconnected';
+          db.whatsapp.status = 'Disconnected';
+          db.whatsapp.isConnected = false;
+          writeDB(db);
+        }
+      } else {
+        connectionStatus = 'Disconnected';
+        db.whatsapp.status = 'Disconnected';
+        db.whatsapp.isConnected = false;
+        writeDB(db);
+      }
+    } catch (err) {
+      console.error('[Fonnte Status API Error]', err);
+      // Fallback: If they provided a token but api failed or disconnected, default to Disconnected
+      connectionStatus = 'Disconnected';
+    }
+  }
   
   res.json({
     totalCustomers: db.leads.length,
     totalConversations: db.leads.length,
     messagesToday: messageCount + 4, // Simulated active count + history
     totalLeads: leadsCount,
-    connectionStatus: db.whatsapp.status,
-    connectedNumber: db.whatsapp.connectedNumber,
-    connectedName: db.whatsapp.deviceName,
+    connectionStatus,
+    connectedNumber,
+    connectedName,
   });
 });
 
