@@ -270,13 +270,24 @@ let lastSupabaseKey = '';
 function getSupabase(): any {
   try {
     const db = readDBQuiet();
-    const url = db.config?.supabaseUrl?.trim() || '';
+    let url = db.config?.supabaseUrl?.trim() || '';
     const key = db.config?.supabaseAnonKey?.trim() || '';
     if (!url || !key) {
       cachedSupabase = null;
       lastSupabaseUrl = '';
       lastSupabaseKey = '';
       return null;
+    }
+
+    // Automatically expand 20-character project references to correct Supabase URLs
+    if (url && !url.startsWith('http://') && !url.startsWith('https://')) {
+      if (/^[a-z0-9]{20}$/i.test(url)) {
+        url = `https://${url}.supabase.co`;
+        console.log('[Supabase Server Init] Autocompleted project reference to:', url);
+      } else {
+        console.warn('[Supabase Server Init] URL is malformed and does not start with http/https:', url);
+        return null;
+      }
     }
     
     if (cachedSupabase && url === lastSupabaseUrl && key === lastSupabaseKey) {

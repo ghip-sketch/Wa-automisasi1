@@ -11,7 +11,9 @@ import {
   HelpCircle,
   Sparkles,
   Key,
-  Share2
+  Share2,
+  Copy,
+  Check
 } from 'lucide-react';
 import { AppConfig } from '../types';
 import { dataService, getSavedCredentials } from '../lib/dataService';
@@ -26,6 +28,8 @@ export default function SettingsView({ config, fetchConfig }: SettingsViewProps)
   const [geminiKeyLocal, setGeminiKeyLocal] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [showSQL, setShowSQL] = useState(false);
+  const [copiedSQL, setCopiedSQL] = useState(false);
 
   useEffect(() => {
     // Read local Gemini Key
@@ -95,6 +99,78 @@ export default function SettingsView({ config, fetchConfig }: SettingsViewProps)
       setIsSaving(false);
       console.error(err);
     }
+  };
+
+  const sqlString = `-- SQL script to initialize Supabase tables for WAI App
+-- Go to your Supabase Dashboard -> SQL Editor -> New Query -> Paste and Run!
+
+CREATE TABLE IF NOT EXISTS config (
+  id TEXT PRIMARY KEY DEFAULT 'default',
+  "businessName" TEXT,
+  "businessDesc" TEXT,
+  "autoReplyActive" BOOLEAN,
+  "systemPrompt" TEXT,
+  "tone" TEXT,
+  "welcomeMessage" TEXT,
+  "workingHours" JSONB,
+  "outOfHoursMessage" TEXT,
+  "supabaseUrl" TEXT,
+  "supabaseAnonKey" TEXT,
+  "whatsappMode" TEXT,
+  "whatsappToken" TEXT,
+  "whatsappPhone" TEXT,
+  "geminiApiKey" TEXT
+);
+
+CREATE TABLE IF NOT EXISTS whatsapp (
+  id TEXT PRIMARY KEY DEFAULT 'default',
+  "status" TEXT,
+  "isConnected" BOOLEAN,
+  "connectedNumber" TEXT,
+  "deviceName" TEXT
+);
+
+CREATE TABLE IF NOT EXISTS leads (
+  id TEXT PRIMARY KEY,
+  "name" TEXT,
+  "phone" TEXT,
+  "firstContact" TEXT,
+  "lastContact" TEXT,
+  "status" TEXT,
+  "notes" TEXT,
+  "chatHistory" JSONB
+);
+
+CREATE TABLE IF NOT EXISTS documents (
+  id TEXT PRIMARY KEY,
+  "name" TEXT,
+  "type" TEXT,
+  "size" INTEGER,
+  "uploadDate" TEXT,
+  "content" TEXT,
+  "chunkCount" INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS qna_rules (
+  id TEXT PRIMARY KEY,
+  "keyword" TEXT,
+  "reply" TEXT,
+  "matchType" TEXT,
+  "isActive" BOOLEAN
+);
+
+INSERT INTO config (id, "businessName", "autoReplyActive") 
+VALUES ('default', 'Coffee & Co. Jakarta', true) 
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO whatsapp (id, "status", "isConnected") 
+VALUES ('default', 'Disconnected', false) 
+ON CONFLICT (id) DO NOTHING;`;
+
+  const handleCopySQL = () => {
+    navigator.clipboard.writeText(sqlString);
+    setCopiedSQL(true);
+    setTimeout(() => setCopiedSQL(false), 2000);
   };
 
   return (
@@ -318,6 +394,48 @@ export default function SettingsView({ config, fetchConfig }: SettingsViewProps)
                 className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:border-emerald-500 outline-none focus:ring-1 focus:ring-emerald-500 font-mono bg-slate-50/50 hover:bg-slate-50 focus:bg-white text-slate-800"
                 placeholder="eyJhbGciOiJIUzI1NiIsInR5..."
               />
+            </div>
+
+            {/* Supabase SQL Script Helper Panel */}
+            <div className="pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowSQL(!showSQL)}
+                className="text-xs font-bold text-slate-500 hover:text-indigo-600 transition flex items-center justify-between w-full p-2 bg-slate-50 hover:bg-slate-100/80 rounded-lg cursor-pointer"
+              >
+                <span>🛠️ Butuh SQL Script untuk inisialisasi tabel Supabase?</span>
+                <span className="text-[10px] bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full font-semibold">
+                  {showSQL ? 'Sembunyikan' : 'Tampilkan'}
+                </span>
+              </button>
+
+              {showSQL && (
+                <div className="mt-3 p-3 bg-slate-900 rounded-xl border border-slate-800 text-left space-y-2 select-text">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10.5px] text-slate-400 font-bold">Salin query ini ke SQL Editor di Supabase:</span>
+                    <button
+                      type="button"
+                      onClick={handleCopySQL}
+                      className="text-[10px] flex items-center gap-1.5 font-bold bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1.5 rounded-lg transition"
+                    >
+                      {copiedSQL ? (
+                        <>
+                          <Check size={11} />
+                          Tersalin!
+                        </>
+                      ) : (
+                        <>
+                          <Copy size={11} />
+                          Salin SQL
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  <pre className="text-[10px] leading-relaxed text-slate-300 overflow-x-auto max-h-48 p-2.5 bg-black/40 rounded-lg font-mono style-scrollbar">
+                    {sqlString}
+                  </pre>
+                </div>
+              )}
             </div>
           </div>
 

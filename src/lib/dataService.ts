@@ -6,35 +6,7 @@ import { Lead, KBDocument, AppConfig, DashboardStats, Message, QnARule } from '.
 let useClientFallbackCached: boolean | null = null;
 
 async function checkBackendAvailable(): Promise<boolean> {
-  if (useClientFallbackCached !== null) {
-    return !useClientFallbackCached;
-  }
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => {
-      try {
-        controller.abort();
-      } catch (e) {}
-    }, 4000);
-
-    const res = await fetch('/api/config', { 
-      method: 'GET', 
-      signal: controller.signal 
-    });
-    
-    clearTimeout(timeoutId);
-    
-    if (res.status === 200) {
-      useClientFallbackCached = false;
-      return true;
-    }
-    useClientFallbackCached = true;
-    return false;
-  } catch (err) {
-    console.log('Backend API server not found or fetch aborted. Running in serverless static client mode.', err);
-    useClientFallbackCached = true;
-    return false;
-  }
+  return true;
 }
 
 // Client-side credentials getters
