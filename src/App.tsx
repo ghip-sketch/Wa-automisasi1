@@ -171,6 +171,7 @@ export default function App() {
             <WhatsAppView 
               stats={stats} 
               fetchStats={fetchAllState}
+              config={config}
             />
           )}
 

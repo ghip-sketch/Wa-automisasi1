@@ -10,7 +10,8 @@ import {
   CheckCircle,
   HelpCircle,
   Sparkles,
-  Key
+  Key,
+  Share2
 } from 'lucide-react';
 import { AppConfig } from '../types';
 import { dataService, getSavedCredentials } from '../lib/dataService';
@@ -336,6 +337,85 @@ export default function SettingsView({ config, fetchConfig }: SettingsViewProps)
                 placeholder="AIzaSy..."
               />
             </div>
+          </div>
+
+          {/* WhatsApp Production Integration */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+            <h3 className="text-xs font-extrabold text-slate-400 uppercase tracking-widest border-b border-slate-50 pb-2 flex items-center">
+              <Share2 size={13} className="text-slate-400 mr-2" />
+              WhatsApp Production Integration
+            </h3>
+
+            <div className="p-3 bg-indigo-50 rounded-xl border border-indigo-100 text-[10.5px] text-indigo-800 leading-relaxed font-semibold">
+              Ganti mode ke <strong>Real WhatsApp (Fonnte)</strong> untuk menghubungkan nomor WhatsApp bisnis Anda secara nyata. Semua pesan masuk ke nomor Anda akan dijawab otomatis oleh AI kami menggunakan pengetahuan bisnis!
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700">Koneksi WhatsApp Mode</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, whatsappMode: 'Simulator' })}
+                  className={`py-2 text-[11px] font-bold rounded-xl border transition-all ${
+                    (formData.whatsappMode || 'Simulator') === 'Simulator'
+                      ? 'bg-slate-900 border-slate-900 text-white shadow-sm'
+                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  Simulator (Demo)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, whatsappMode: 'Fonnte' })}
+                  className={`py-2 text-[11px] font-bold rounded-xl border transition-all ${
+                    formData.whatsappMode === 'Fonnte'
+                      ? 'bg-emerald-600 border-emerald-600 text-white shadow-sm'
+                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  Real WhatsApp (Fonnte)
+                </button>
+              </div>
+            </div>
+
+            {formData.whatsappMode === 'Fonnte' ? (
+              <div className="space-y-3 pt-1">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">Fonnte API Token</label>
+                  <input
+                    type="password"
+                    name="whatsappToken"
+                    value={formData.whatsappToken || ''}
+                    onChange={handleChange}
+                    className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:border-emerald-500 outline-none focus:ring-1 focus:ring-emerald-500 font-mono bg-slate-50/50 hover:bg-slate-50 focus:bg-white text-slate-800"
+                    placeholder="Contoh: aBcdEfGhIjKlMnOpQrSt"
+                  />
+                  <p className="text-[9.5px] text-slate-400">
+                    Dapatkan token API Anda dengan mendaftarkan nomor Anda di <a href="https://fonnte.com" target="_blank" rel="noopener noreferrer" className="text-emerald-600 hover:underline font-semibold font-sans">fonnte.com</a>.
+                  </p>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">Nomor WhatsApp Terhubung</label>
+                  <input
+                    type="text"
+                    name="whatsappPhone"
+                    value={formData.whatsappPhone || ''}
+                    onChange={handleChange}
+                    className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:border-emerald-500 outline-none focus:ring-1 focus:ring-emerald-500 font-mono bg-slate-50/50 hover:bg-slate-50 focus:bg-white text-slate-800"
+                    placeholder="Contoh: 6281245219988"
+                  />
+                </div>
+
+                <div className="p-3 bg-amber-50 rounded-xl border border-amber-100 text-[10.5px] text-amber-800 leading-relaxed font-semibold">
+                  <strong>PENTING (Langkah Berhasil):</strong><br />
+                  Agar pesan masuk WhatsApp menuju HP Anda dibaca oleh AI, daftarkan alamat Webhook ini di kolom <strong>Webhook URL</strong> akun Fonnte Anda:<br />
+                  <code className="bg-white/80 px-2 py-1 rounded text-[10px] font-mono select-all block mt-1.5 border border-amber-200 break-all select-all font-bold">
+                    {window.location.origin}/api/webhook/whatsapp
+                  </code>
+                </div>
+              </div>
+            ) : null}
           </div>
 
         </div>

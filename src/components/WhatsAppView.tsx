@@ -19,9 +19,10 @@ import { dataService } from '../lib/dataService';
 interface WhatsAppViewProps {
   stats: DashboardStats;
   fetchStats: () => void;
+  config?: AppConfig;
 }
 
-export default function WhatsAppView({ stats, fetchStats }: WhatsAppViewProps) {
+export default function WhatsAppView({ stats, fetchStats, config }: WhatsAppViewProps) {
   const [loading, setLoading] = useState(false);
   const [qrRefreshedCount, setQrRefreshedCount] = useState(0);
   const [activeLogs, setActiveLogs] = useState<string[]>([
@@ -80,16 +81,48 @@ export default function WhatsAppView({ stats, fetchStats }: WhatsAppViewProps) {
   return (
     <div className="space-y-6">
       <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-        <h2 className="text-xl font-bold text-slate-900 tracking-tight">Koneksi Layanan WhatsApp Web</h2>
+        <h2 className="text-xl font-bold text-slate-900 tracking-tight">
+          {config?.whatsappMode === 'Fonnte' ? 'Koneksi WhatsApp Produksi (Fonnte)' : 'Koneksi Layanan WhatsApp Web'}
+        </h2>
         <p className="text-sm text-slate-500 mt-1">
-          Hubungkan WAI Assistant ke nomor WhatsApp Bisnis Anda menggunakan modul Web Multi-Device WhatsApp standar.
+          {config?.whatsappMode === 'Fonnte' 
+            ? 'Sistem sedang berjalan menggunakan koneksi integrasi API Gateway Cloud WhatsApp resmi Anda.'
+            : 'Hubungkan WAI Assistant ke nomor WhatsApp Bisnis Anda menggunakan modul Web Multi-Device WhatsApp standar.'}
         </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* QR Code / Active Status Card */}
         <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col items-center justify-between text-center relative overflow-hidden h-fit">
-          {stats.connectionStatus === 'Connected' ? (
+          {config?.whatsappMode === 'Fonnte' ? (
+            <div className="py-6 flex flex-col items-center w-full">
+              <div className="w-16 h-16 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mb-4 border border-emerald-100 animate-pulse">
+                <Wifi size={28} />
+              </div>
+              <span className="bg-emerald-50 text-emerald-800 text-[10px] font-bold px-3 py-1.5 rounded-full border border-emerald-100 uppercase tracking-widest font-mono">
+                FONNTE LIVE ACTIVE
+              </span>
+              
+              <div className="mt-6 space-y-2.5 text-center w-full px-4 text-xs font-semibold">
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-left">
+                  <p className="text-[9px] text-slate-400 font-bold uppercase">Nomor WhatsApp Bisnis</p>
+                  <p className="text-xs font-bold text-slate-800 font-mono mt-0.5">{config.whatsappPhone || 'Terkonfigurasi'}</p>
+                </div>
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-left">
+                  <p className="text-[9px] text-slate-400 font-bold uppercase">Tipe Gateway</p>
+                  <p className="text-xs font-bold text-indigo-700 mt-0.5">Cloud Multi-Device API</p>
+                </div>
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 text-left">
+                  <p className="text-[9px] text-slate-400 font-bold uppercase">Token Fonnte</p>
+                  <p className="text-xs font-mono text-slate-600 mt-0.5">•••••{config.whatsappToken ? config.whatsappToken.slice(-4) : 'diatur'}</p>
+                </div>
+              </div>
+
+              <div className="mt-6 p-3 bg-indigo-50/50 rounded-xl border border-indigo-100 text-[9.5px] text-indigo-800 text-left leading-relaxed font-semibold">
+                *Multi-device cloud ditenagai sepenuhnya oleh server Fonnte. HP Anda tidak dituntut berada dekat server hosting agar AI selalu merespons.
+              </div>
+            </div>
+          ) : stats.connectionStatus === 'Connected' ? (
             <div className="py-6 flex flex-col items-center w-full">
               <div className="w-16 h-16 bg-emerald-50 text-emerald-500 rounded-full flex items-center justify-center mb-4 border border-emerald-100">
                 <Wifi size={28} className="animate-pulse" />
@@ -166,31 +199,86 @@ export default function WhatsAppView({ stats, fetchStats }: WhatsAppViewProps) {
         {/* Guided steps + Terminal Logs */}
         <div className="lg:col-span-2 space-y-6">
           {/* Guide Steps */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-            <h3 className="text-base font-bold text-slate-900 border-b border-slate-50 pb-3">Cara Menghubungkan Nomor WhatsApp</h3>
-            <div className="mt-4 space-y-4">
-              <div className="flex items-start space-x-3 text-xs text-slate-600 font-medium">
-                <div className="w-5 h-5 bg-slate-100 text-slate-800 font-bold rounded-full flex items-center justify-center shrink-0">1</div>
-                <div>
-                  <h4 className="font-bold text-slate-900">Buka Aplikasi WhatsApp di Handphone Anda</h4>
-                  <p className="text-slate-500 mt-1">Pastikan handphone terkoneksi internet lancar.</p>
+          <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm animate-fadeIn">
+            {config?.whatsappMode === 'Fonnte' ? (
+              <div>
+                <h3 className="text-base font-bold text-slate-900 border-b border-slate-50 pb-3 flex items-center justify-between">
+                  <span>Informasi Webhook Real WhatsApp</span>
+                  <span className="bg-emerald-100 text-emerald-800 text-[10px] px-2.5 py-0.5 rounded-full font-bold font-sans uppercase">SIAP</span>
+                </h3>
+                <div className="mt-4 space-y-4">
+                  <p className="text-xs text-slate-500 leading-relaxed font-semibold">
+                    Salin alamat URL Webhook di bawah ini, lalu tempelkan ke kolom <strong>Webhook URL</strong> di panel akun Fonnte Anda agar setiap pesan yang dikirim pelanggan ke nomor Anda dijawab secara otomatis dalam 0.5 detik!
+                  </p>
+                  
+                  <div className="space-y-1.5 p-3.5 bg-slate-50 border border-slate-100 rounded-xl">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Target Webhook URL</label>
+                    <div className="flex items-center space-x-2 mt-1">
+                      <input
+                        type="text"
+                        readOnly
+                        value={`${window.location.origin}/api/webhook/whatsapp`}
+                        className="flex-1 text-xs font-mono p-2 bg-white rounded-lg border border-slate-200 outline-none select-all font-bold text-indigo-700 break-all"
+                      />
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(`${window.location.origin}/api/webhook/whatsapp`);
+                          alert('Alamat webhook berhasil disalin!');
+                        }}
+                        className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer shadow-sm active:scale-95 shrink-0"
+                      >
+                        Salin
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-150 text-xs">
+                      <h4 className="font-bold text-slate-800">Cara Pengaturan Webhook:</h4>
+                      <ol className="list-decimal pl-4 mt-2 text-slate-500 space-y-1.5 leading-relaxed font-medium">
+                        <li>Masuk ke dashboard panel <a href="https://fonnte.com" target="_blank" rel="noopener noreferrer" className="text-indigo-600 underline">Fonnte</a>.</li>
+                        <li>Pilih menu <strong>Device</strong> lalu klik edit device Anda.</li>
+                        <li>Isi kolom <strong>Webhook URL</strong> dengan alamat di atas.</li>
+                        <li>Simpan perubahan (Klik <strong>Save Webhook</strong>).</li>
+                      </ol>
+                    </div>
+                    <div className="bg-emerald-50/50 p-3 rounded-xl border border-emerald-100 text-xs">
+                      <h4 className="font-bold text-emerald-800">Uji Coba Pengiriman:</h4>
+                      <p className="mt-2 text-emerald-700 leading-relaxed font-medium">
+                        Coba kirimkan pesan bertuliskan <span className="font-bold bg-white px-1 py-0.5 rounded border border-emerald-200 font-mono text-[10px]">&quot;Halo, minta daftar menu&quot;</span> dari nomor WA pribadimu ke nomor terdaftar Anda sendiri. AI kami akan membalasnya dengan real-time!
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
-              <div className="flex items-start space-x-3 text-xs text-slate-600 font-medium">
-                <div className="w-5 h-5 bg-slate-100 text-slate-800 font-bold rounded-full flex items-center justify-center shrink-0">2</div>
-                <div>
-                  <h4 className="font-bold text-slate-900">Ketuk Opsi &gt; Perangkat Tertaut (Linked Devices)</h4>
-                  <p className="text-slate-500 mt-1">Tekan tombol &quot;Tautkan Perangkat (Link a Device)&quot;.</p>
+            ) : (
+              <div>
+                <h3 className="text-base font-bold text-slate-900 border-b border-slate-50 pb-3">Cara Menghubungkan Nomor WhatsApp</h3>
+                <div className="mt-4 space-y-4">
+                  <div className="flex items-start space-x-3 text-xs text-slate-600 font-medium">
+                    <div className="w-5 h-5 bg-slate-100 text-slate-800 font-bold rounded-full flex items-center justify-center shrink-0">1</div>
+                    <div>
+                      <h4 className="font-bold text-slate-900">Buka Aplikasi WhatsApp di Handphone Anda</h4>
+                      <p className="text-slate-500 mt-1">Pastikan handphone terkoneksi internet lancar.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start space-x-3 text-xs text-slate-600 font-medium">
+                    <div className="w-5 h-5 bg-slate-100 text-slate-800 font-bold rounded-full flex items-center justify-center shrink-0">2</div>
+                    <div>
+                      <h4 className="font-bold text-slate-900">Ketuk Opsi &gt; Perangkat Tertaut (Linked Devices)</h4>
+                      <p className="text-slate-500 mt-1">Tekan tombol &quot;Tautkan Perangkat (Link a Device)&quot;.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start space-x-3 text-xs text-slate-600 font-medium">
+                    <div className="w-5 h-5 bg-slate-100 text-slate-800 font-bold rounded-full flex items-center justify-center shrink-0">3</div>
+                    <div>
+                      <h4 className="font-bold text-slate-900">Arahkan Kamera HP ke QR Code WAI Assistant</h4>
+                      <p className="text-slate-500 mt-1">Uji coba instan dengan menekan tombol hijau simulasi untuk mensimulasikan pemindaian berhasil.</p>
+                    </div>
+                  </div>
                 </div>
               </div>
-              <div className="flex items-start space-x-3 text-xs text-slate-600 font-medium">
-                <div className="w-5 h-5 bg-slate-100 text-slate-800 font-bold rounded-full flex items-center justify-center shrink-0">3</div>
-                <div>
-                  <h4 className="font-bold text-slate-900">Arahkan Kamera HP ke QR Code WAI Assistant</h4>
-                  <p className="text-slate-500 mt-1">Uji coba instan dengan menekan tombol hijau simulasi untuk mensimulasikan pemindaian berhasil.</p>
-                </div>
-              </div>
-            </div>
+            )}
           </div>
 
           {/* Live System Terminal Logs */}

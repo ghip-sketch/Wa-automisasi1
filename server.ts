@@ -24,8 +24,9 @@ if (process.env.GEMINI_API_KEY) {
   });
 }
 
-// Interceptor to parse JSON bodies
+// Interceptor to parse JSON and urlencoded bodies
 app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // Local database default structures
 interface LocalDB {
@@ -44,6 +45,9 @@ interface LocalDB {
     outOfHoursMessage: string;
     supabaseUrl: string;
     supabaseAnonKey: string;
+    whatsappMode?: 'Simulator' | 'Fonnte';
+    whatsappToken?: string;
+    whatsappPhone?: string;
   };
   leads: Array<{
     id: string;
@@ -93,6 +97,9 @@ const defaultDB: LocalDB = {
     outOfHoursMessage: 'Terima kasih telah menghubungi kami. Saat ini kafe kami sedang tutup (Jam Operasional: 09:00 - 21:00 WIB). AI kami masih dapat menjawab beberapa FAQ umum, namun admin manusia akan membalas pesan Anda besok pagi! Kopi segar menunggu Anda besok! ☕',
     supabaseUrl: '',
     supabaseAnonKey: '',
+    whatsappMode: 'Simulator',
+    whatsappToken: '',
+    whatsappPhone: '',
   },
   leads: [
     {
@@ -229,6 +236,35 @@ function retrieveContext(query: string, documents: Array<{ content: string }>): 
   return `\n=== INFORMASI BISNIS DARI KNOWLEDGE BASE ===\n${documents.map(d => d.content).join('\n\n')}\n============================================\n`;
 }
 
+// Helper to call real Fonnte WhatsApp API
+async function sendWhatsAppReal(to: string, text: string, config: any): Promise<boolean> {
+  if (config.whatsappMode === 'Fonnte' && config.whatsappToken) {
+    try {
+      console.log(`[Fonnte Outbound] Sending message to ${to}`);
+      // Remove any non-numeric symbols like +, -, spaces
+      const cleanPhone = to.replace(/\D/g, ''); 
+      const response = await fetch('https://api.fonnte.com/send', {
+        method: 'POST',
+        headers: {
+          'Authorization': config.whatsappToken.trim(),
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          target: cleanPhone,
+          message: text
+        })
+      });
+      const resJson: any = await response.json();
+      console.log('[Fonnte Outbound Response]', resJson);
+      return resJson.status === true;
+    } catch (err) {
+      console.error('[Fonnte Outbound Error] Failed to send real message:', err);
+      return false;
+    }
+  }
+  return false;
+}
+
 // API: Get app current settings & stats
 app.get('/api/config', (req, res) => {
   const db = readDB();
@@ -326,6 +362,22 @@ app.post('/api/leads', (req, res) => {
 
   const existingIndex = db.leads.findIndex(l => l.phone === leadData.phone || l.id === leadData.id);
   if (existingIndex !== -1) {
+    const oldLead = db.leads[existingIndex];
+    const newHistory = leadData.chatHistory || [];
+    const oldHistory = oldLead.chatHistory || [];
+    
+    // Check if new history has an assistant message that wasn't in the old one
+    if (newHistory.length > oldHistory.length) {
+      const lastMsg = newHistory[newHistory.length - 1];
+      if (lastMsg && lastMsg.sender === 'assistant') {
+        const alreadyExists = oldHistory.some((m: any) => m.id === lastMsg.id);
+        if (!alreadyExists) {
+          // Send manual chat outwards to actual WhatsApp device
+          sendWhatsAppReal(leadData.phone, lastMsg.text, db.config);
+        }
+      }
+    }
+
     db.leads[existingIndex] = { ...db.leads[existingIndex], ...leadData, lastContact: new Date().toISOString() };
     writeDB(db);
     res.json({ success: true, lead: db.leads[existingIndex] });
@@ -592,11 +644,182 @@ TUGAS UTAMA:
 
   writeDB(db);
 
+  // Send real message out if configured in production Fonnte mode
+  if (responseText && db.config.whatsappMode === 'Fonnte') {
+    sendWhatsAppReal(customerPhone, responseText, db.config);
+  }
+
   res.json({
     success: true,
     lead,
     replyText: responseText,
   });
+});
+
+// API: REAL WHATSAPP WEBHOOK (Fonnte & general standard)
+app.post('/api/webhook/whatsapp', async (req, res) => {
+  const db = readDB();
+
+  // Fonnte sends POST parameters: sender, message, and name
+  const customerPhone = req.body.sender || req.body.phone;
+  const messageText = req.body.message || req.body.text;
+  const customerName = req.body.name || 'Pelanggan WhatsApp';
+
+  if (!customerPhone || !messageText) {
+    console.log('[Webhook Skip] Missing sender/phone or message/text in body:', req.body);
+    return res.status(200).json({ success: false, info: 'Missing sender or message content' });
+  }
+
+  console.log(`[Webhook Message] From ${customerPhone}: "${messageText}" (Name: ${customerName})`);
+
+  // Normalize phone digits
+  let phoneStr = customerPhone.toString().trim();
+  if (!phoneStr.startsWith('+') && !phoneStr.startsWith('0') && !phoneStr.startsWith('62')) {
+    phoneStr = '+' + phoneStr;
+  } else if (phoneStr.startsWith('0')) {
+    phoneStr = '+62' + phoneStr.slice(1);
+  } else if (phoneStr.startsWith('62')) {
+    phoneStr = '+' + phoneStr;
+  }
+
+  // Find or Create Lead
+  let lead = db.leads.find(l => {
+    const cleanL = l.phone.replace(/\D/g, '');
+    const cleanIn = phoneStr.replace(/\D/g, '');
+    return cleanL === cleanIn || cleanL.endsWith(cleanIn) || cleanIn.endsWith(cleanL);
+  });
+
+  const isNewLead = !lead;
+
+  if (isNewLead) {
+    lead = {
+      id: 'l_' + Date.now(),
+      name: customerName,
+      phone: phoneStr,
+      firstContact: new Date().toISOString(),
+      lastContact: new Date().toISOString(),
+      chatHistory: [],
+      status: 'Baru',
+      notes: 'Terbuat otomatis via Webhook WhatsApp asli.',
+    };
+    db.leads.push(lead);
+  } else {
+    lead.lastContact = new Date().toISOString();
+    if (lead.name === 'Pelanggan Baru' && customerName && customerName !== 'Pelanggan WhatsApp') {
+      lead.name = customerName;
+    }
+  }
+
+  // Push customer message to history
+  const customerMsg = {
+    id: 'm_' + Date.now() + '_cust',
+    sender: 'customer' as const,
+    text: messageText,
+    timestamp: new Date().toISOString()
+  };
+  lead.chatHistory.push(customerMsg);
+
+  // If auto-reply is currently disabled, save chat and exit
+  if (!db.config.autoReplyActive) {
+    writeDB(db);
+    return res.json({ success: true, info: 'Auto reply is turned off.' });
+  }
+
+  // Check working hours
+  const hoursCheck = isWithinWorkingHours(db.config);
+  
+  // Choose model tone instruction
+  const toneInstruction = {
+    Professional: 'Ketik balasan Anda dengan bahasa Indonesia yang sangat sopan, profesional, jelas, menggunakan kata sapaan resmi (Bapak/Ibu/Anda) tanpa singkatan kasar.',
+    Casual: 'Ketik balasan Anda dengan gaya kasual, ramah, bersahabat, menggunakan sapaan hangat seperti Kak, Kakak, atau nama mereka secara santai, dan boleh menggunakan beberapa emoji pendukung.',
+    Formal: 'Ketik balasan Anda dengan gaya bahasa formal, tata bahasa baku sesuai kamus bahasa Indonesia, terstruktur, sopan, dan langsung pada sasaran.'
+  }[db.config.tone] || 'Gunakan gaya bahasa profesional.';
+
+  // Retrieve RAG context
+  const kbContext = retrieveContext(messageText, db.documents);
+  const chatHistoryContext = lead.chatHistory
+    .slice(-6, -1)
+    .map(msg => `${msg.sender === 'customer' ? 'Pelanggan' : 'Anda (Asisten WAI)'}: ${msg.text}`)
+    .join('\n');
+
+  const finalSystemInstruction = `
+${db.config.systemPrompt}
+
+GAYA BAHASA & NADA BICARA KORPORAT:
+- Nama Bisnis: ${db.config.businessName}
+- Deskripsi Bisnis: ${db.config.businessDesc}
+- Nada bicara wajib: ${db.config.tone}
+- Aturan Nada: ${toneInstruction}
+
+KONTEN PENGETAHUAN PENDUKUNG (RAG):
+${kbContext}
+
+RIWAYAT PERCAKAPAN SINGKAT SEBELUMNYA:
+${chatHistoryContext}
+
+TUGAS UTAMA:
+1. Jalin komunikasi ramah dengan pelanggan yang mengirimkan pesan berikut: "${messageText}"
+2. Berikan informasi seakurat mungkin hanya berdasarkan informasi bisnis di atas. Jika tidak ada informasinya di pengetahuan bisnis, jawab dengan ramah bahwa Anda belum mengetahuinya dan tawarkan untuk menghubungkan ke admin manusia.
+3. Selalu dorong pelanggan ke arah pembelian atau reservasi dengan ramah.
+4. Jawablah langsung sebagai asisten profesional tanpa mencantumkan label "Jawaban:" atau Metadata lainnya.
+`;
+
+  let responseText = '';
+
+  if (!hoursCheck.within) {
+    responseText = hoursCheck.feedback;
+  } else if (!ai) {
+    // Basic AI fallback
+    const lowercaseMsg = messageText.toLowerCase();
+    if (lowercaseMsg.includes('menu') || lowercaseMsg.includes('harga') || lowercaseMsg.includes('makan') || lowercaseMsg.includes('kopi')) {
+      responseText = `Halo ${lead.name}! Menu andalan kami di ${db.config.businessName} adalah:\n1. Kopi Susu Pandan Wangi (Rp 35.000)\n2. Cafe Latte / Cappuccino (Rp 38.000)\n\nAda yang ingin Kakak pesan hari ini? 😊`;
+    } else {
+      responseText = `${db.config.welcomeMessage.replace('Halo!', `Halo ${lead.name}!`)}`;
+    }
+  } else {
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.5-flash',
+        contents: messageText,
+        config: {
+          systemInstruction: finalSystemInstruction,
+          temperature: 0.7,
+        },
+      });
+      responseText = response.text || '';
+    } catch (err: any) {
+      console.error('Gemini API call failed during webhook processing:', err);
+      responseText = `Halo ${lead.name}! Terima kasih atas pesan Anda. Kami akan segera merespons.`;
+    }
+  }
+
+  // Push reply message to history
+  if (responseText) {
+    const assistantMsg = {
+      id: 'm_' + Date.now() + '_asst',
+      sender: 'assistant' as const,
+      text: responseText,
+      timestamp: new Date().toISOString()
+    };
+    lead.chatHistory.push(assistantMsg);
+
+    // Heuristics for status update
+    const textMatches = messageText.toLowerCase();
+    if (lead.status === 'Baru') lead.status = 'Prospek';
+    if (textMatches.includes('order') || textMatches.includes('pesan') || textMatches.includes('booking') || textMatches.includes('reservasi')) {
+      lead.status = 'Follow Up';
+    }
+    if (textMatches.includes('sudah bayar') || textMatches.includes('transfer') || textMatches.includes('closing')) {
+      lead.status = 'Closing';
+    }
+
+    writeDB(db);
+
+    // Send real response outwards to Fonnte
+    await sendWhatsAppReal(phoneStr, responseText, db.config);
+  }
+
+  res.json({ success: true, replyText: responseText });
 });
 
 // Serve Vite files or static build depending on production env

@@ -82,7 +82,10 @@ const defaultLocalConfig: AppConfig = {
   },
   outOfHoursMessage: 'Terima kasih telah menghubungi kami. Saat ini kafe kami sedang tutup (Jam Operasional: 09:00 - 21:00 WIB). AI kami masih dapat menjawab beberapa FAQ umum, namun admin manusia akan membalas pesan Anda besok pagi! Kopi segar menunggu Anda besok! ☕',
   supabaseUrl: '',
-  supabaseAnonKey: ''
+  supabaseAnonKey: '',
+  whatsappMode: 'Simulator',
+  whatsappToken: '',
+  whatsappPhone: ''
 };
 
 const defaultLocalLeads: Lead[] = [

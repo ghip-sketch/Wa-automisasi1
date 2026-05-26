@@ -41,6 +41,10 @@ export interface AppConfig {
   // Supabase Settings (for real integration fallback)
   supabaseUrl: string;
   supabaseAnonKey: string;
+  // Production WhatsApp Gateway Integration (e.g. Fonnte)
+  whatsappMode?: 'Simulator' | 'Fonnte';
+  whatsappToken?: string;
+  whatsappPhone?: string;
 }
 
 export interface DashboardStats {
