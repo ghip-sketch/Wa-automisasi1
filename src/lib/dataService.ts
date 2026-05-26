@@ -10,7 +10,20 @@ async function checkBackendAvailable(): Promise<boolean> {
     return !useClientFallbackCached;
   }
   try {
-    const res = await fetch('/api/config', { method: 'GET', signal: AbortSignal.timeout(3000) });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      try {
+        controller.abort();
+      } catch (e) {}
+    }, 4000);
+
+    const res = await fetch('/api/config', { 
+      method: 'GET', 
+      signal: controller.signal 
+    });
+    
+    clearTimeout(timeoutId);
+    
     if (res.status === 200) {
       useClientFallbackCached = false;
       return true;
@@ -18,7 +31,7 @@ async function checkBackendAvailable(): Promise<boolean> {
     useClientFallbackCached = true;
     return false;
   } catch (err) {
-    console.log('Backend API server not found. Running in serverless static client mode.');
+    console.log('Backend API server not found or fetch aborted. Running in serverless static client mode.', err);
     useClientFallbackCached = true;
     return false;
   }
